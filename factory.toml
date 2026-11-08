@@ -1,0 +1,50 @@
+# ソフトウェアファクトリーの設定。
+# 秘密情報（APIキー・GitHub App の秘密鍵など）はここに書かず、環境変数で渡す。
+# 項目の説明: specs/001-foundation/contracts/factory-toml.md
+
+[llm]
+# さくらのAI Engine の OpenAI 互換エンドポイント（仮の値。002 のスモークテストで確かめて直す）
+base_url = "https://api.ai.sakura.ad.jp/v1"
+
+[models]
+# モデル名（仮の値。002 で実機の正確な名前に直す）
+planner = "Kimi-K2.7-Code"     # 計画役（ツールなし・1回呼び出し）
+implementer = "Kimi-K2.7-Code" # 実装役
+verifier = "Qwen3.6"           # 検査役（実装役とは別系統）
+# verifier_alt = "gemma-4"     # 検査役の比較用（012）
+fallback = "gpt-oss-120b"      # プレビューモデル停止時の退避先
+
+[budget]
+monthly_requests = 3000   # 月のリクエスト上限
+per_job_requests = 100    # 1ジョブのリクエスト上限
+timezone = "Asia/Tokyo"   # 月の区切りに使うタイムゾーン
+
+[limits]
+judge_retries = 2              # 判定不合格のやり直しの上限
+ci_retries = 2                 # CI 失敗後のやり直しの上限
+max_turns_per_phase = 40       # 1工程のターン数の上限
+job_timeout_minutes = 60       # ジョブ全体の時間の上限
+ci_wait_timeout_minutes = 30   # CI 待ちの時間の上限
+
+[auto_merge]
+max_diff_lines = 300   # これを超える diff は Draft PR にする
+# 変更したら自動マージしないパス（glob）
+forbidden_paths = [
+  ".github/workflows/**",
+  ".env*",
+  "**/pnpm-lock.yaml",
+  "**/package-lock.json",
+  "**/yarn.lock",
+  "deploy/**",
+]
+allowed_work_types = ["bugfix", "test", "docs", "refactor"]   # 自動マージを許す作業の種類
+
+[github]
+allowed_users = ["Coxless"]   # @agent を実行できるユーザー（書き込み権限の確認に加えて絞る）
+
+[storage]
+database_path = "data/factory.db"   # 相対パスはこのファイルのディレクトリが基準
+trace_dir = "data/traces"
+
+[log]
+level = "info"   # trace / debug / info / warn / error / fatal
