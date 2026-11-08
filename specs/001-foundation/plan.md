@@ -85,7 +85,7 @@ specs/001-foundation/
 ├── drizzle.config.ts
 ├── factory.toml             # 動く設定（秘密情報なし）。テストで検証が通ることを確かめる
 ├── .gitignore               # node_modules, data/
-├── .github/workflows/ci.yml # pnpm install --frozen-lockfile → pnpm run check
+├── .github/workflows/ci.yml # launch-workshop で dev を起動 → その中で pnpm install --frozen-lockfile → pnpm run check
 ├── drizzle/                 # 生成した SQL マイグレーション
 └── src/
     ├── main.ts              # 起動: loadConfig → createLogger → openDatabase → runMigrations

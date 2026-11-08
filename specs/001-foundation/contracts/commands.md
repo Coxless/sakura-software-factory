@@ -13,5 +13,5 @@
 | `pnpm run db:generate` | `drizzle-kit generate` | `src/queue/schema.ts` の変更から `drizzle/` に SQL を作る（開発者だけが使う） | |
 | `pnpm run db:migrate` | `node src/migrate.ts` | 未適用のマイグレーションを適用して終了コード 0。適用済みなら何もせず 0 | 終了コード 1、データベースは適用前のまま |
 
-- CI（`.github/workflows/ci.yml`）は `pnpm install --frozen-lockfile` のあとに `pnpm run check` だけを呼ぶ
+- CI（`.github/workflows/ci.yml`）は `canonical/launch-workshop` でローカルと同じ Workshop の `dev` を起動し、その中で `pnpm install --frozen-lockfile` のあとに `pnpm run check` だけを呼ぶ
 - 001 の `pnpm start` は起動処理を終えたらそのまま終了する。常駐（HTTP と Worker）は 006・007 で足す

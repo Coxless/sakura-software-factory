@@ -66,7 +66,7 @@ description: "Task list for 001 foundation"
 - [X] T009 [US1] 品質チェックの土台が動くことを示す最小のテスト `src/check.smoke.test.ts` を置く（`expect(true).toBe(true)` 程度。US2 以降の本物のテストができたら Phase 7 で消す）
 - [X] T010 [US1] `pnpm run check`（`biome ci . && tsc --noEmit && vitest run`）を実行し、終了コード 0 になるまで設定を直す。かかった時間を測り、2分以内であることを確かめる（SC-001）
 - [X] T011 [US1] 検出できることを確かめる（SC-002）: 型エラー（`const x: number = "a"`）、lint 違反（未使用の変数）、失敗するテスト（`expect(1).toBe(2)`）をそれぞれ一時的に入れ、`pnpm run check` が 0 以外で終わり、場所・テスト名が出ることを確かめてから元に戻す。あわせて、一時ディレクトリにリポジトリをコピーして `npm install` を実行し、0 以外の終了コードで失敗して pnpm の名前が出ること、`pnpm install` は `devEngines` があっても通ることを確かめる（US1 受入シナリオ4）。npm が `devEngines` を無視するなど想定と違えば、`preinstall` での確認など代わりの方法を決めて spec・plan を直す。結果を `docs/journal/` に記録する
-- [X] T012 [P] [US1] `.github/workflows/ci.yml` を作る。`push` と `pull_request` で起動し、`actions/checkout` → `actions/setup-node`（Node 24）→ `corepack enable` → `pnpm install --frozen-lockfile` → `pnpm run check`。権限は `contents: read` だけ
+- [X] T012 [P] [US1] `.github/workflows/ci.yml` を作る。`push` と `pull_request` で起動し、`actions/checkout` → `canonical/launch-workshop`（`workshop: dev`、SHA で固定）→ `workshop exec dev` の中で `pnpm install --frozen-lockfile` → `pnpm run check`（最初は setup-node 方式で作り、Workshop 方式に切り替えた。journal 参照）。権限は `contents: read` だけ
 
 **Checkpoint**: US1 だけで、以降のすべてのコードに同じ品質ゲートがかかる
 
