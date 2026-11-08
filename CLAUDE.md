@@ -9,6 +9,10 @@
 - 決定事項と根拠だけを書く。TODO・次のアクション・変更履歴は書かない
 - 「国産インフラで完結」とは書かない（リポジトリは GitHub）。「推論を国産・ZDRで閉じる」と書く
 
+## 応答
+
+- ユーザーへの応答は日本語で書く
+
 ## 開発環境
 
 ローカル開発は Ubuntu Workshop の `dev` を使う。定義は `.workshop/`、Node.js は Workshop の `node` SDK（`24/stable`）、Docker・git・ripgrep は `.workshop/devtools/hooks/setup-base` で入れる。

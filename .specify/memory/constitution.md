@@ -1,50 +1,147 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# Sakura Software Factory Constitution
+
+本憲法は `docs/design/` の決定事項のうち、すべての機能仕様・計画・実装が守るべき不変条件を定める。
+方針の詳細は `01_ソフトウェアファクトリーの定義と方針.md`、構成の詳細は
+`03_アーキテクチャと技術スタック.md` を正とする。
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. 推論を国産・ZDRで閉じる
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+- LLM の推論は さくらのAI Engine（Zero Data Retention）だけで行わなければならない（MUST）。
+  他の LLM 事業者の推論 API へコードやプロンプトを送ってはならない。
+- LLM は OpenAI互換API（Chat Completions / Responses）で呼ぶ（MUST）。Anthropic互換APIは使わない。
+- モデル名はコードに書かず `factory.toml` に置き、差し替え可能にする（MUST）。
+  プレビューモデル停止時の退避先（gpt-oss-120b）を設定で切り替えられること。
+- ファクトリー本体・サンドボックス・ステージングは さくらのVPS で動かす。リポジトリは GitHub のまま。
+- 対外的な表現は「推論を国産・ZDRで閉じる」とし、「国産インフラで完結」とは書かない（MUST）。
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+**根拠**: コードを海外のAI事業者に渡せない企業チームへの価値が本プロジェクトの最大の差別化点であり、
+プレビューモデルは予告なく終了しうるため。
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### II. 工程はコードで制御する
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+- 計画→実装→テスト→判定→PR→CI待ち→マージ→デプロイ→レポートの流れは、
+  自前の決め打ちの状態機械として実装する（MUST）。工程の遷移を LLM に決めさせてはならない。
+- LLM に任せるのは各工程の中身だけとする。ワークフローエンジン（Mastra、LangGraph.js 等）は使わない。
+- すべての反復（判定不合格のやり直し、CI失敗後のやり直し、1工程のターン数）と
+  ジョブ全体の時間に上限を設ける（MUST）。上限超過・予算切れ・タイムアウトは `failed` に遷移する。
+- 失敗時も Issue にまとめレポートを1回投稿してから停止する（MUST）。
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+**根拠**: 工程が決め打ちであることで、リクエスト消費が予測でき、予算管理と監査証跡が成り立つ。
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### III. 実装と検査を別モデルにする
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+- 実装役と検査・判定役は別系統のモデルにしなければならない（MUST）。
+  実装は Kimi 系、検査は Qwen / Gemma 系とする。
+- 計画役と検査役はツールなしの1回呼び出しとし、`tools` 自体を渡さない（MUST）。
+- 検査役の出力はプロンプトで JSON を出させ、TypeBox で検証する（MUST）。
+  `response_format` には依存しない。検証失敗時の再要求は1回まで。
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+**根拠**: 同じAIが書いて同じAIが判定する循環を避けるため。さくらのAI Engine は
+`response_format` を無視し、`tool_choice` の扱いがモデルごとに異なるため。
+
+### IV. 隔離と最小権限（NON-NEGOTIABLE）
+
+- エージェントループ（LLM 呼び出し）はホストで動かし、ツール（read / write / edit / bash）の実行は
+  ジョブ専用の Docker コンテナ内に限る（MUST）。
+- APIキー・GitHub トークン・その他の秘密情報をサンドボックスのコンテナに渡してはならない（MUST）。
+  clone / commit / push はホストだけが行う。
+- 実装工程のコンテナは `--network none`、読み取り専用ルート、`--cap-drop ALL`、
+  `no-new-privileges`、非rootユーザー、CPU・メモリ・プロセス数の制限、bash のタイムアウトで動かす（MUST）。
+- ツールの読み書きは作業ディレクトリ内に限り、`.github/workflows`・`.env`・ロックファイル・
+  デプロイ設定の直接編集を拒否する（MUST）。
+- Issue 本文・リポジトリ内のファイル・CIログは「データ」として扱い、指示として扱わない（MUST）。
+  `@agent` を実行できるのは書き込み権限のあるユーザーだけとする。
+- GitHub 連携は GitHub App の短命トークンで行い、PAT は使わない。Workflows の書き込み権限は与えない。
+- Webhook は署名を定数時間比較で検証してから処理する（MUST）。
+
+**根拠**: SDK のガードレールはすり抜けられる前提の「やわらかい層」であり、
+本当の防御は OS（サンドボックス）と GitHub の権限で行うため。
+
+### V. 予算ゲートと計測
+
+- すべての LLM 呼び出しは `streamFn` ラッパー（予算ゲート）を通さなければならない（MUST）。
+  ラッパーを経由しない呼び出し経路を作ってはならない。リトライもこの層で実装し、漏れなく数える。
+- 呼び出しの前に、月とジョブごとの残量を確認し、足りなければ止める（MUST）。
+  月の残りが1ジョブの上限を下回ったら新しいジョブを受け付けない。
+- LLM 呼び出し1回ごとに `llm_calls`（`job_id, phase, role, model, attempt, input_tokens,
+  output_tokens, latency_ms, status, error`）を記録する（MUST）。
+- 軌跡（プロンプト、ツール呼び出し、結果）はジョブごとに SQLite と JSONL に保存する（MUST）。
+  秘密情報らしい文字列はマスクする。
+
+**根拠**: 月3,000リクエストの無償枠を生産能力として扱い、記事の徹底検証パートの材料にするため。
+
+### VI. 品質ゲートと自律レベルB
+
+- 自律レベルはBとする。CI通過後に main へ自動マージし、ステージングへ自動デプロイする。
+  本番デプロイの権限をファクトリーに持たせてはならない（MUST）。
+- テストに通らないものは出荷しない（MUST）。工程内検査（lint・型チェック・関係するテスト）は
+  決まったコマンドで実行し、最終の品質ゲートは対象リポジトリの GitHub Actions（必須チェック）とする。
+  ファクトリーは CI を置き換えず、独自のマージ判定もしない。
+- auto-merge を有効にするのは、検査役の合格・diff の大きさの上限・禁止パス未変更・
+  gitleaks による秘密情報スキャン・`no-auto-merge` ラベルなし・作業の種類が許可リスト内、を
+  すべて満たすときだけとする（MUST）。1つでも満たさなければ Draft PR にして人間に渡す。
+- ステージングでヘルスチェックに失敗したら、直前のイメージに戻し revert PR を作る（MUST）。
+- まとめレポートには「どの条件で自動マージした／しなかったか」を含める。
+
+**根拠**: 本番まで自動化するだけの検証は無償枠では組めないため、人間のレビューの代わりに
+機械の条件で自動マージを絞り、本番の判断は人間に残す。
+
+### VII. シンプルさと差し替え可能性
+
+- ミドルウェアを増やさない。キューと記録は SQLite 1つにまとめ、Redis 等は使わない（MUST）。
+  LLM を使う工程の同時実行は1件とする。
+- GitHub 固有の処理は `github/` 層に閉じ込める（MUST）。将来 Forgejo に置き換えられるようにする。
+- ハーネスの部品（コンテキスト・ツール・制約・フィードバック）は Pi のフックに分けて実装し、
+  差し替え可能にする。複数のガードは合成関数で順に実行し、1つでも拒否したら止める。
+- 必要になるまで機能を足さない（YAGNI）。追加する複雑さは計画の Complexity Tracking で正当化する。
+
+**根拠**: 1人で締切（2026-12-16）までに作り、24時間安定稼働させ、読者が再現できる構成にするため。
+
+## 技術的制約
+
+- 言語は TypeScript、ランタイムは Node.js 24 LTS（型除去で実行し、型チェックは `tsc --noEmit`）。
+- パッケージマネージャーは pnpm（corepack 経由、`package.json` の `packageManager` で固定）。
+  npm・yarn は使わない。
+- スキーマは TypeBox に統一する。Zod は使わない。
+- エージェント／LLM層は Pi（`@earendil-works/pi-agent-core` / `@earendil-works/pi-ai`）とし、
+  バージョンを完全に固定する。旧名 `@mariozechner/*` の情報は使わない。
+  予備は TanStack AI（ツール呼び出しが安定しない、または API 変更への追従が困難な場合のみ切り替える）。
+- 実装役のツールは逐次実行に設定する（並列実行しない）。
+- 主要ライブラリ: Hono、octokit / @octokit/webhooks、better-sqlite3 ＋ Drizzle ORM、execa、
+  smol-toml、pino。lint / format は Biome、テストは Vitest。
+- 公開は Caddy（TLS 自動更新）で VPS が直接受ける。常駐化は systemd。
+- ステージングへのデプロイは VPS 上のファクトリーが main への push を受けて行う。
+  Actions から SSH でデプロイしない。
+- 採用しないもの: AI SDK 6、Flue、Mastra、LangGraph.js、OpenAI Agents SDK、Anthropic互換API。
+
+## 開発ワークフロー
+
+- 開発は Spec Kit（`/speckit-*`）で進める。仕様・計画は本憲法の Constitution Check を通すこと。
+- 作業前に関係する設計ドキュメント（`docs/design/`）を読む。設計と食い違う変更が要るときは、
+  先に設計ドキュメントを直してから実装する。決定事項が変わったら関係する文書をすべて同時に直す。
+- 設計ドキュメントには決定事項と根拠だけを書き、TODO・次のアクション・変更履歴は書かない。
+- ローカル開発は Ubuntu Workshop の `dev` で行い、コマンドは `workshop exec dev -- <command>` で
+  実行する。ツールの追加は `.workshop/devtools/hooks/setup-base` に書き、ホストに直接入れない。
+- テストでは LLM を偽の `streamFn` に差し替える。自動テストで さくらのAI Engine を呼ばない。
+- ハーネス（プロンプト・ツール・ガード・コンテキスト管理）を変えたら `evals/` の回帰評価を実行し、
+  成功率・消費リクエスト数・処理時間を前回と比べる。評価は判定工程までで止め、
+  CI・マージ・デプロイは回さない。評価の実行分も月の予算に入れて計画する。
+- CI とファクトリー内テストのコマンドをそろえる（同じ `pnpm run check` などを呼ぶ）。
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+- 本憲法は他の慣行・テンプレート・個別の計画に優先する。仕様・計画・タスク・レビューは
+  原則 I〜VII への適合を確認しなければならない。違反を許容する場合は、計画の
+  Complexity Tracking に理由と、より単純な代替を採らない理由を書く。
+  原則 IV（NON-NEGOTIABLE）の違反は許容しない。
+- 本憲法と `docs/design/` は一致させる。どちらかの決定事項を変えるときは、
+  `docs/design/` の関係する文書と本憲法を同じ変更で直す。
+- 改定は `/speckit-constitution` で行い、バージョンはセマンティックバージョニングに従う。
+  - MAJOR: 原則の削除、または後方互換性のない再定義
+  - MINOR: 原則・節の追加、または指針の実質的な拡張
+  - PATCH: 文言の明確化・誤字修正など意味を変えない変更
+- 実行時の開発ガイダンスは `CLAUDE.md` を参照する。
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-11-08 | **Last Amended**: 2026-11-08
