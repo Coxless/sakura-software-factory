@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      # ローカルと同じ Workshop の dev（.workshop/dev.yaml）を起動する
+      - uses: canonical/launch-workshop@dbc59e6056469b75f782e083a8fda15c557e0d22 # v1.0.1
+        with:
+          workshop: dev
+      - run: workshop exec dev -- bash -c 'cd /project && pnpm install --frozen-lockfile'
+      - run: workshop exec dev -- bash -c 'cd /project && pnpm run check'

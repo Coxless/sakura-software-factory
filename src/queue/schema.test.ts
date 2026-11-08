@@ -1,0 +1,153 @@
+import { asc, eq } from "drizzle-orm";
+import { describe, expect, test } from "vitest";
+import { budget, deployments, jobEvents, jobs, llmCalls, type NewJob } from "./schema.ts";
+import { migratedMemoryDb } from "./testing.ts";
+
+const job = (overrides: Partial<NewJob> = {}): NewJob => ({
+  repo: "Coxless/demo",
+  issue_number: 1,
+  trigger_comment_id: 100,
+  requested_by: "Coxless",
+  instruction: "README を直して",
+  created_at: 1,
+  updated_at: 1,
+  ...overrides,
+});
+
+describe("schema", () => {
+  test("各テーブルに書いた値を同じ値で読み出せる", () => {
+    const { db, close } = migratedMemoryDb();
+    const [inserted] = db.insert(jobs).values(job()).returning().all();
+    expect(inserted).toMatchObject({
+      status: "queued",
+      judge_retries: 0,
+      ci_retries: 0,
+      branch: null,
+      pr_number: null,
+      started_at: null,
+    });
+    const jobId = inserted?.id as number;
+
+    const call = {
+      job_id: jobId,
+      phase: "planning",
+      role: "planner" as const,
+      model: "Kimi-K2.7-Code",
+      attempt: 1,
+      input_tokens: 1200,
+      output_tokens: 300,
+      latency_ms: 4500,
+      status: "error" as const,
+      error: "timeout",
+      created_at: 10,
+    };
+    db.insert(llmCalls).values(call).run();
+    expect(db.select().from(llmCalls).all()).toEqual([{ id: 1, ...call }]);
+
+    db.insert(deployments)
+      .values({
+        job_id: jobId,
+        commit_sha: "abc",
+        image_tag: "demo:abc",
+        status: "running",
+        created_at: 5,
+      })
+      .run();
+    expect(db.select().from(deployments).get()).toMatchObject({
+      rolled_back: false,
+      rolled_back_to: null,
+      finished_at: null,
+    });
+
+    db.insert(budget).values({ month: "2026-11", monthly_limit: 3000, created_at: 1 }).run();
+    expect(db.select().from(budget).get()).toEqual({
+      month: "2026-11",
+      monthly_limit: 3000,
+      intake_stopped_at: null,
+      created_at: 1,
+    });
+    close();
+  });
+
+  test("ジョブのイベントは書いた順に読める", () => {
+    const { db, close } = migratedMemoryDb();
+    const jobId = db.insert(jobs).values(job()).returning({ id: jobs.id }).get().id;
+    for (const [from, to] of [
+      ["queued", "planning"],
+      ["planning", "implementing"],
+      ["implementing", "testing"],
+    ] as const) {
+      db.insert(jobEvents)
+        .values({
+          job_id: jobId,
+          type: "state_changed",
+          from_status: from,
+          to_status: to,
+          created_at: 7,
+        })
+        .run();
+    }
+    const events = db
+      .select()
+      .from(jobEvents)
+      .where(eq(jobEvents.job_id, jobId))
+      .orderBy(asc(jobEvents.id))
+      .all();
+    expect(events.map((event) => event.to_status)).toEqual(["planning", "implementing", "testing"]);
+    close();
+  });
+
+  test("ジョブに属さない LLM 呼び出しも書ける", () => {
+    const { db, close } = migratedMemoryDb();
+    db.insert(llmCalls)
+      .values({
+        phase: "smoke",
+        role: "implementer",
+        model: "m",
+        attempt: 1,
+        latency_ms: 1,
+        status: "ok",
+        created_at: 1,
+      })
+      .run();
+    expect(db.select().from(llmCalls).get()?.job_id).toBeNull();
+    close();
+  });
+
+  test("制約に反する値は書けない", () => {
+    const { sqlite, db, close } = migratedMemoryDb();
+    db.insert(jobs).values(job()).run();
+    const insertJob = (status: string, commentId: number) =>
+      sqlite
+        .prepare(
+          "INSERT INTO jobs (repo, issue_number, trigger_comment_id, requested_by, instruction, status, created_at, updated_at) VALUES ('r', 1, ?, 'u', 'i', ?, 1, 1)",
+        )
+        .run(commentId, status);
+    expect(() => insertJob("done", 200)).toThrow(/CHECK/);
+    expect(() => db.insert(jobs).values(job()).run()).toThrow(/UNIQUE/);
+
+    const insertCall = (attempt: number, latency: number) =>
+      sqlite
+        .prepare(
+          "INSERT INTO llm_calls (phase, role, model, attempt, latency_ms, status, created_at) VALUES ('p', 'planner', 'm', ?, ?, 'ok', 1)",
+        )
+        .run(attempt, latency);
+    expect(() => insertCall(0, 1)).toThrow(/CHECK/);
+    expect(() => insertCall(1, -1)).toThrow(/CHECK/);
+    expect(() =>
+      sqlite
+        .prepare(
+          "INSERT INTO llm_calls (phase, role, model, attempt, latency_ms, status, created_at) VALUES ('p', 'boss', 'm', 1, 1, 'ok', 1)",
+        )
+        .run(),
+    ).toThrow(/CHECK/);
+
+    expect(() =>
+      db.insert(jobEvents).values({ job_id: 999, type: "note", created_at: 1 }).run(),
+    ).toThrow(/FOREIGN KEY/);
+    expect(() =>
+      db.insert(budget).values({ month: "2026-12", monthly_limit: 0, created_at: 1 }).run(),
+    ).toThrow(/CHECK/);
+    close();
+  });
+});
