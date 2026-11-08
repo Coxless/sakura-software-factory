@@ -9,6 +9,15 @@
 - 決定事項と根拠だけを書く。TODO・次のアクション・変更履歴は書かない
 - 「国産インフラで完結」とは書かない（リポジトリは GitHub）。「推論を国産・ZDRで閉じる」と書く
 
+## 開発環境
+
+ローカル開発は Ubuntu Workshop の `dev` を使う。定義は `.workshop/`、Node.js は Workshop の `node` SDK（`24/stable`）、Docker・git・ripgrep は `.workshop/devtools/hooks/setup-base` で入れる。
+
+- 起動: `workshop launch dev`（初回）／`workshop start dev`。定義を変えたら `workshop refresh dev`
+- コマンドは Workshop の中で実行する: `workshop exec dev -- <command>`（プロジェクトは `/project` にマウントされる）
+- パッケージマネージャーは pnpm（corepack 経由）。npm・yarn は使わない。pnpm のバージョンは `package.json` の `packageManager` で固定する
+- ツールを追加するときは `setup-base` に書く（ホストに直接入れない）
+
 ## 開発
 
 - Spec Kit（`/speckit-*`）で進める。設計と食い違う変更が要るときは、先に設計ドキュメントを直す

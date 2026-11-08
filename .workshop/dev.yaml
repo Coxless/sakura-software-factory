@@ -1,0 +1,6 @@
+name: dev
+base: ubuntu@24.04
+sdks:
+  - name: node
+    channel: 24/stable
+  - name: project-devtools
