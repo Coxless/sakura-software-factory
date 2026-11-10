@@ -11,11 +11,21 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-24.04
+    # 外部の障害などで止まったときに、既定の 6 時間まで待たない
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
-      # ローカルと同じ Workshop の dev（.workshop/dev.yaml）を起動する
-      - uses: canonical/launch-workshop@dbc59e6056469b75f782e083a8fda15c557e0d22 # v1.0.1
+      # ランナーで直接動かす（Workshop は起動のたびに Snap Store に依存するため。docs/journal/2026-11-10-ci-runner.md）
+      - uses: actions/setup-node@v5
         with:
-          workshop: dev
-      - run: workshop exec dev -- bash -c 'cd /project && pnpm install --frozen-lockfile'
-      - run: workshop exec dev -- bash -c 'cd /project && pnpm run check'
+          node-version: 24
+          # packageManager を見て pnpm を探しにいき、corepack を有効にする前に失敗するため切る
+          package-manager-cache: false
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      # 作業場のイメージ（003）。ランナーの Docker で作り、作業場のテストを実行できるようにする
+      - run: pnpm run sandbox:build
+      - run: pnpm run check
+        env:
+          # Docker やイメージがないときに、作業場のテストを飛ばさず失敗にする
+          FACTORY_SANDBOX_REQUIRED: "1"
