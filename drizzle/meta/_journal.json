@@ -8,6 +8,13 @@
       "when": 1794146556965,
       "tag": "0000_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1794315074476,
+      "tag": "0001_llm_error_kind",
+      "breakpoints": true
     }
   ]
 }

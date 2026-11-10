@@ -1,3 +1,6 @@
 allowBuilds:
   esbuild: true
+  # pi-ai の推移的な依存。さくら（openai-completions）だけを使うので実行しない
+  "@google/genai": false
+  protobufjs: false
 saveExact: true

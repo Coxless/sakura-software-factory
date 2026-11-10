@@ -35,6 +35,9 @@ export const JOB_EVENT_TYPES = ["state_changed", "note", "error"] as const;
 export const LLM_ROLES = ["planner", "implementer", "verifier"] as const;
 export type LlmRole = (typeof LLM_ROLES)[number];
 export const LLM_CALL_STATUSES = ["ok", "error"] as const;
+/** 失敗の種類（002 research R6）。予算切れは送らないので記録しない */
+export const LLM_ERROR_KINDS = ["transient", "permanent", "timeout", "aborted"] as const;
+export type LlmErrorKind = (typeof LLM_ERROR_KINDS)[number];
 export const DEPLOYMENT_STATUSES = ["running", "succeeded", "failed"] as const;
 
 /** `column IN ('a', 'b', ...)` の CHECK 用。値はこのファイルの定数だけなので埋め込んでよい */
@@ -107,6 +110,8 @@ export const llmCalls = sqliteTable(
     output_tokens: integer("output_tokens"),
     latency_ms: integer("latency_ms").notNull(),
     status: text("status", { enum: LLM_CALL_STATUSES }).notNull(),
+    /** 失敗の種類。成功なら NULL */
+    error_kind: text("error_kind", { enum: LLM_ERROR_KINDS }),
     /** 秘密情報はマスク済みの内容を入れる */
     error: text("error"),
     /** 呼び出しの開始時刻。月の集計はこの列で行う */
@@ -117,6 +122,11 @@ export const llmCalls = sqliteTable(
     index("llm_calls_job_id_idx").on(t.job_id),
     check("llm_calls_role_check", oneOf(t.role, LLM_ROLES)),
     check("llm_calls_status_check", oneOf(t.status, LLM_CALL_STATUSES)),
+    check("llm_calls_error_kind_check", oneOf(t.error_kind, LLM_ERROR_KINDS)),
+    check(
+      "llm_calls_error_kind_status_check",
+      sql`(${t.status} = 'ok') = (${t.error_kind} IS NULL)`,
+    ),
     check("llm_calls_attempt_check", sql`${t.attempt} >= 1`),
     check("llm_calls_latency_check", sql`${t.latency_ms} >= 0`),
   ],

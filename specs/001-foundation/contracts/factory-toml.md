@@ -14,6 +14,9 @@
 | 項目 | 型 | 既定 | 制約 |
 |---|---|---|---|
 | `base_url` | string | — | `https://` で始まる URL |
+| `max_attempts` | integer | `3` | 1〜10。最初の1回を含む LLM 呼び出しの試行回数の上限（002 で追加） |
+| `max_retry_delay_seconds` | integer | `60` | 1〜600。サーバーの待ち時間の指示がこれを超えたら再試行しない（002 で追加） |
+| `request_timeout_seconds` | integer | `300` | 10〜1800。1回の試行の時間の上限（002 で追加） |
 
 ### `[models]`
 

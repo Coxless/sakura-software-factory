@@ -1,9 +1,12 @@
 import { ConfigError, type FactoryConfig, loadConfig } from "./config.ts";
+import { installStreamFnGuard } from "./llm/stream.ts";
 import { createLogger, type Logger } from "./log.ts";
 import { openDatabase, runMigrations } from "./queue/db.ts";
 
 /** 起動処理: 設定 → ログ → DB を開いてマイグレーション。HTTP と Worker は 006・007 で足す */
 function main(): number {
+  // LLM 呼び出しはすべて予算ゲートを通す。Agent に streamFn を渡し忘れても素通りさせない
+  installStreamFnGuard();
   let config: FactoryConfig;
   try {
     config = loadConfig();

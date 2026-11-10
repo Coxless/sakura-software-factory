@@ -65,3 +65,7 @@ function countLlmCallsForJob(db: Db, jobId: number): number;
 ```ts
 function monthRange(now: number, timeZone: string): { key: string; start: number; end: number }; // key は "YYYY-MM"、start/end は UTC ミリ秒（end は翌月初、含まない）
 ```
+
+## 002 で追加
+
+LLM 層（`src/llm/provider.ts`・`budget.ts`・`stream.ts`・`smoke.ts`・`testing.ts`）を足した。関数と型は `specs/002-llm-budget-gate/contracts/module-api.md` を正とする。`llm_calls` に `error_kind` 列を足した（`specs/002-llm-budget-gate/data-model.md`）。
