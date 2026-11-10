@@ -10,14 +10,14 @@
 
 - LLM の推論は さくらのAI Engine（Zero Data Retention）だけで行わなければならない（MUST）。
   他の LLM 事業者の推論 API へコードやプロンプトを送ってはならない。
-- LLM は OpenAI互換API（Chat Completions / Responses）で呼ぶ（MUST）。Anthropic互換APIは使わない。
+- LLM は OpenAI互換の Chat Completions API で呼ぶ（MUST）。Responses API・Anthropic互換APIは使わない。
 - モデル名はコードに書かず `factory.toml` に置き、差し替え可能にする（MUST）。
   プレビューモデル停止時の退避先（gpt-oss-120b）を設定で切り替えられること。
 - ファクトリー本体・サンドボックス・ステージングは さくらのVPS で動かす。リポジトリは GitHub のまま。
 - 対外的な表現は「推論を国産・ZDRで閉じる」とし、「国産インフラで完結」とは書かない（MUST）。
 
 **根拠**: コードを海外のAI事業者に渡せない企業チームへの価値が本プロジェクトの最大の差別化点であり、
-プレビューモデルは予告なく終了しうるため。
+プレビューモデルは予告なく終了しうるため。さくらのAI Engine の無償枠で使えるのは Chat Completions だけであるため。
 
 ### II. 工程はコードで制御する
 
@@ -124,7 +124,8 @@
 - 設計ドキュメントには決定事項と根拠だけを書き、TODO・次のアクション・変更履歴は書かない。
 - ローカル開発は Ubuntu Workshop の `dev` で行い、コマンドは `workshop exec dev -- <command>` で
   実行する。ツールの追加は `.workshop/devtools/hooks/setup-base` に書き、ホストに直接入れない。
-- テストでは LLM を偽の `streamFn` に差し替える。自動テストで さくらのAI Engine を呼ばない。
+- テストでは LLM を偽物に差し替える（予算ゲートの内側、本物の LLM の位置に差し込む）。
+  自動テストで さくらのAI Engine を呼ばない。
 - ハーネス（プロンプト・ツール・ガード・コンテキスト管理）を変えたら `evals/` の回帰評価を実行し、
   成功率・消費リクエスト数・処理時間を前回と比べる。評価は判定工程までで止め、
   CI・マージ・デプロイは回さない。評価の実行分も月の予算に入れて計画する。
@@ -144,4 +145,4 @@
   - PATCH: 文言の明確化・誤字修正など意味を変えない変更
 - 実行時の開発ガイダンスは `CLAUDE.md` を参照する。
 
-**Version**: 1.0.0 | **Ratified**: 2026-11-08 | **Last Amended**: 2026-11-08
+**Version**: 1.1.0 | **Ratified**: 2026-11-08 | **Last Amended**: 2026-11-10
