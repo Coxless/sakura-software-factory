@@ -41,7 +41,7 @@ describe("countLlmCallsInMonth", () => {
       .values([
         call(at("2026-11-30T14:59:59.999Z")), // 11月（JST）
         call(at("2026-11-30T15:00:00Z")), // 12月 1日 0:00 JST
-        call(at("2026-12-10T00:00:00Z"), { status: "error", error: "x" }),
+        call(at("2026-12-10T00:00:00Z"), { status: "error", error_kind: "transient", error: "x" }),
         call(at("2026-12-31T15:00:00Z")), // 1月
       ])
       .run();

@@ -13,7 +13,11 @@
 
 | 項目 | 型 | 既定 | 制約 |
 |---|---|---|---|
+| `provider` | string | `"sakura"` | `sakura` / `google-ai-studio`（開発用。002 で追加） |
 | `base_url` | string | — | `https://` で始まる URL |
+| `max_attempts` | integer | `3` | 1〜10。最初の1回を含む LLM 呼び出しの試行回数の上限（002 で追加） |
+| `max_retry_delay_seconds` | integer | `60` | 1〜600。サーバーの待ち時間の指示がこれを超えたら再試行しない（002 で追加） |
+| `request_timeout_seconds` | integer | `300` | 10〜1800。1回の試行の時間の上限（002 で追加） |
 
 ### `[models]`
 
@@ -121,6 +125,7 @@ TOML の構文エラーのときは、行と列を含むメッセージにする
 |---|---|---|
 | `FACTORY_CONFIG` | 設定ファイルの場所（任意） | 001 |
 | `SAKURA_AI_API_KEY` | さくらのAI Engine の APIキー | 002 |
+| `GEMINI_API_KEY` | Google AI Studio の APIキー（開発用。`provider = "google-ai-studio"` のとき） | 002 |
 | GitHub App の ID・秘密鍵・Webhook シークレット | GitHub 連携 | 007（名前は 007 で決める） |
 
 秘密情報は `requireEnv(name)` で読み、なければ名前を含むエラーで止める。

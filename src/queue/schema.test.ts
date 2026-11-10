@@ -1,6 +1,14 @@
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, test } from "vitest";
-import { budget, deployments, jobEvents, jobs, llmCalls, type NewJob } from "./schema.ts";
+import {
+  budget,
+  deployments,
+  jobEvents,
+  jobs,
+  LLM_ERROR_KINDS,
+  llmCalls,
+  type NewJob,
+} from "./schema.ts";
 import { migratedMemoryDb } from "./testing.ts";
 
 const job = (overrides: Partial<NewJob> = {}): NewJob => ({
@@ -38,6 +46,7 @@ describe("schema", () => {
       output_tokens: 300,
       latency_ms: 4500,
       status: "error" as const,
+      error_kind: "timeout" as const,
       error: "timeout",
       created_at: 10,
     };
@@ -141,6 +150,20 @@ describe("schema", () => {
         )
         .run(),
     ).toThrow(/CHECK/);
+
+    const insertResult = (status: string, errorKind: string | null) =>
+      sqlite
+        .prepare(
+          "INSERT INTO llm_calls (phase, role, model, attempt, latency_ms, status, error_kind, created_at) VALUES ('p', 'planner', 'm', 1, 1, ?, ?, 1)",
+        )
+        .run(status, errorKind);
+    for (const kind of LLM_ERROR_KINDS) expect(() => insertResult("error", kind)).not.toThrow();
+    expect(() => insertResult("ok", null)).not.toThrow();
+    // 決められた以外の種類
+    expect(() => insertResult("error", "budget_exceeded")).toThrow(/CHECK/);
+    // status = 'ok' ⇔ error_kind IS NULL
+    expect(() => insertResult("ok", "transient")).toThrow(/CHECK/);
+    expect(() => insertResult("error", null)).toThrow(/CHECK/);
 
     expect(() =>
       db.insert(jobEvents).values({ job_id: 999, type: "note", created_at: 1 }).run(),

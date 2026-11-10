@@ -23,9 +23,12 @@
     "start": "node src/main.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node src/migrate.ts",
-    "sandbox:build": "docker build -t factory-sandbox:latest sandbox"
+    "sandbox:build": "docker build -t factory-sandbox:latest sandbox",
+    "smoke:llm": "node src/smoke-llm.ts"
   },
   "dependencies": {
+    "@earendil-works/pi-agent-core": "1.5.0",
+    "@earendil-works/pi-ai": "1.5.0",
     "better-sqlite3": "13.0.3",
     "drizzle-orm": "0.45.4",
     "execa": "10.2.1",

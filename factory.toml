@@ -5,6 +5,9 @@
 [llm]
 # さくらのAI Engine の OpenAI 互換エンドポイント（仮の値。002 のスモークテストで確かめて直す）
 base_url = "https://api.ai.sakura.ad.jp/v1"
+max_attempts = 3                # 最初の1回を含む試行回数の上限（1〜10）
+max_retry_delay_seconds = 60    # サーバーの待ち時間の指示がこれを超えたら再試行しない（1〜600）
+request_timeout_seconds = 300   # 1回の試行の時間の上限（10〜1800）
 
 [models]
 # モデル名（仮の値。002 で実機の正確な名前に直す）

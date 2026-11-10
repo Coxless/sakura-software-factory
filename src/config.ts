@@ -5,11 +5,17 @@ import Type, { type Static } from "typebox";
 import Value from "typebox/value";
 import { LOG_LEVELS } from "./log.ts";
 
+/** LLM の提供元。google-ai-studio は開発中だけ（constitution 原則 I の例外。常駐するファクトリーでは使わない） */
+export const LLM_PROVIDER_IDS = ["sakura", "google-ai-studio"] as const;
+export type LlmProviderId = (typeof LLM_PROVIDER_IDS)[number];
+
 const NonEmpty = Type.String({ minLength: 1 });
 const Count = (minimum: number, defaultValue?: number) =>
   defaultValue === undefined
     ? Type.Integer({ minimum })
     : Type.Integer({ minimum, default: defaultValue });
+const Range = (minimum: number, maximum: number, defaultValue: number) =>
+  Type.Integer({ minimum, maximum, default: defaultValue });
 const strict = { additionalProperties: false } as const;
 
 /** ツールで書き込みを拒否するパス（層3）。auto_merge.forbidden_paths（層6）とは別の一覧 */
@@ -28,7 +34,19 @@ export const DEFAULT_DENY_WRITE_PATHS = [
 
 export const FactoryConfigSchema = Type.Object(
   {
-    llm: Type.Object({ base_url: Type.String({ pattern: "^https://" }) }, strict),
+    llm: Type.Object(
+      {
+        provider: Type.Enum([...LLM_PROVIDER_IDS], { default: "sakura" }),
+        base_url: Type.String({ pattern: "^https://" }),
+        /** 最初の1回を含む試行回数の上限 */
+        max_attempts: Range(1, 10, 3),
+        /** サーバーの待ち時間の指示がこれを超えたら再試行しない */
+        max_retry_delay_seconds: Range(1, 600, 60),
+        /** 1回の試行の時間の上限 */
+        request_timeout_seconds: Range(10, 1800, 300),
+      },
+      strict,
+    ),
     models: Type.Object(
       {
         planner: NonEmpty,
@@ -172,6 +190,8 @@ function translate(error: SchemaError): ConfigIssue[] {
       return [{ path, message: `${String(params.limit)} 以上にしてください` }];
     case "exclusiveMinimum":
       return [{ path, message: `${String(params.limit)} より大きくしてください` }];
+    case "maximum":
+      return [{ path, message: `${String(params.limit)} 以下にしてください` }];
     case "minLength":
       return [{ path, message: `${String(params.limit)} 文字以上にしてください` }];
     case "minItems":
