@@ -18,14 +18,19 @@ export interface FakeUsage {
 export type FakeResponse =
   /** テキストの応答。usage を省くと usage を返さない（スモークテストの (f) の不合格を再現する） */
   | { text: string; usage?: FakeUsage }
-  /** ツール呼び出し。ストリーミングでは引数の JSON を2つの delta に分けて返す */
+  /**
+   * ツール呼び出し。ストリーミングでは引数の JSON を2つの delta に分けて返す。
+   * id を省くと call_fake_1。1つの応答で複数を呼ぶときは toolCalls（id は call_fake_1, call_fake_2, …）
+   */
   | {
-      toolCall: { name: string; args: Record<string, unknown> };
+      toolCall: FakeToolCall;
       /** ツール呼び出しに付ける extra_content（Gemini の thought_signature の再現） */
       extraContent?: Record<string, unknown>;
       text?: string;
       usage?: FakeUsage;
     }
+  /** 1つの応答で複数のツールを呼ぶ（004） */
+  | { toolCalls: FakeToolCall[]; text?: string; usage?: FakeUsage }
   /** HTTP エラー（429・500・401 など）。retryAfterSeconds で retry-after ヘッダーを付ける */
   | {
       httpError: number;
@@ -39,6 +44,36 @@ export type FakeResponse =
   | { midStreamError: string }
   /** 応答を返さず、要求の signal が中止されるまで待つ（タイムアウト・取り消しのテスト） */
   | { hang: true };
+
+export interface FakeToolCall {
+  name: string;
+  args: Record<string, unknown>;
+  id?: string;
+}
+
+type FakeAnswer = Extract<
+  FakeResponse,
+  { text: string } | { toolCall: unknown } | { toolCalls: unknown }
+>;
+
+/** 応答のツール呼び出しの一覧（id を決めたもの）。extraContent は1つ目だけに付ける */
+function toolCallsOf(
+  response: FakeAnswer,
+): { id: string; call: FakeToolCall; extra?: Record<string, unknown> }[] {
+  if ("toolCalls" in response) {
+    return response.toolCalls.map((call, i) => ({ id: call.id ?? `call_fake_${i + 1}`, call }));
+  }
+  if ("toolCall" in response) {
+    return [
+      {
+        id: response.toolCall.id ?? "call_fake_1",
+        call: response.toolCall,
+        ...(response.extraContent ? { extra: response.extraContent } : {}),
+      },
+    ];
+  }
+  return [];
+}
 
 export interface FakeRequest {
   url: string;
@@ -84,12 +119,10 @@ function openAiUsage(usage: FakeUsage) {
 }
 
 /** テキスト・ツール呼び出しの応答を SSE のチャンク列にする */
-function sseEvents(
-  response: Extract<FakeResponse, { text: string } | { toolCall: unknown }>,
-  model: string,
-): string[] {
+function sseEvents(response: FakeAnswer, model: string): string[] {
   const events: string[] = [];
-  const text = "toolCall" in response ? response.text : response.text;
+  const text = response.text;
+  const calls = toolCallsOf(response);
   events.push(
     sseChunk(model, { index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }),
   );
@@ -102,8 +135,8 @@ function sseEvents(
       }
     }
   }
-  if ("toolCall" in response) {
-    const args = JSON.stringify(response.toolCall.args);
+  for (const [index, { id, call, extra }] of calls.entries()) {
+    const args = JSON.stringify(call.args);
     const half = Math.ceil(args.length / 2);
     events.push(
       sseChunk(model, {
@@ -111,11 +144,11 @@ function sseEvents(
         delta: {
           tool_calls: [
             {
-              index: 0,
-              id: "call_fake_1",
+              index,
+              id,
               type: "function",
-              function: { name: response.toolCall.name, arguments: args.slice(0, half) },
-              ...(response.extraContent ? { extra_content: response.extraContent } : {}),
+              function: { name: call.name, arguments: args.slice(0, half) },
+              ...(extra ? { extra_content: extra } : {}),
             },
           ],
         },
@@ -125,7 +158,7 @@ function sseEvents(
     events.push(
       sseChunk(model, {
         index: 0,
-        delta: { tool_calls: [{ index: 0, function: { arguments: args.slice(half) } }] },
+        delta: { tool_calls: [{ index, function: { arguments: args.slice(half) } }] },
         finish_reason: null,
       }),
     );
@@ -134,7 +167,7 @@ function sseEvents(
     sseChunk(model, {
       index: 0,
       delta: {},
-      finish_reason: "toolCall" in response ? "tool_calls" : "stop",
+      finish_reason: calls.length > 0 ? "tool_calls" : "stop",
     }),
   );
   if (response.usage) events.push(sseChunk(model, undefined, openAiUsage(response.usage)));
@@ -143,33 +176,26 @@ function sseEvents(
 }
 
 /** テキスト・ツール呼び出しの応答を chat.completion の JSON にする（stream: false 用） */
-function jsonCompletion(
-  response: Extract<FakeResponse, { text: string } | { toolCall: unknown }>,
-  model: string,
-) {
+function jsonCompletion(response: FakeAnswer, model: string) {
   const message: Record<string, unknown> = {
     role: "assistant",
     content: response.text ?? null,
   };
-  if ("toolCall" in response) {
-    message.tool_calls = [
-      {
-        id: "call_fake_1",
-        type: "function",
-        function: {
-          name: response.toolCall.name,
-          arguments: JSON.stringify(response.toolCall.args),
-        },
-        ...(response.extraContent ? { extra_content: response.extraContent } : {}),
-      },
-    ];
+  const calls = toolCallsOf(response);
+  if (calls.length > 0) {
+    message.tool_calls = calls.map(({ id, call, extra }) => ({
+      id,
+      type: "function",
+      function: { name: call.name, arguments: JSON.stringify(call.args) },
+      ...(extra ? { extra_content: extra } : {}),
+    }));
   }
   return {
     id: "chatcmpl-fake",
     object: "chat.completion",
     created: 0,
     model,
-    choices: [{ index: 0, message, finish_reason: "toolCall" in response ? "tool_calls" : "stop" }],
+    choices: [{ index: 0, message, finish_reason: calls.length > 0 ? "tool_calls" : "stop" }],
     ...(response.usage ? { usage: openAiUsage(response.usage) } : {}),
   };
 }
@@ -288,6 +314,20 @@ export interface TestConfigOverrides {
     request_timeout_seconds: number;
   }>;
   budget?: Partial<{ monthly_requests: number; per_job_requests: number; timezone: string }>;
+  /** [limits] の一部（004） */
+  limits?: Partial<{ max_turns_per_phase: number; job_timeout_minutes: number }>;
+  /** [implementer] の一部（004） */
+  implementer?: Partial<{
+    max_consecutive_blocks: number;
+    compaction_ratio: number;
+    keep_recent_turns: number;
+    max_agents_md_chars: number;
+    max_issue_chars: number;
+    max_plan_chars: number;
+    max_feedback_chars: number;
+  }>;
+  /** [storage] の一部（004 の軌跡のテスト） */
+  storage?: Partial<{ trace_dir: string }>;
 }
 
 export const TEST_API_KEY = "test-key-ABCDEF123";
@@ -299,6 +339,10 @@ function tomlTable(values: Record<string, unknown>): string {
   return Object.entries(values)
     .map(([key, value]) => `${key} = ${JSON.stringify(value)}`)
     .join("\n");
+}
+
+function optionalTable(name: string, values: Record<string, unknown> | undefined): string {
+  return values === undefined ? "" : `[${name}]\n${tomlTable(values)}\n`;
 }
 
 /** テスト用の設定。上限などを一部だけ上書きできる */
@@ -326,6 +370,9 @@ ${tomlTable(budget)}
 
 [github]
 allowed_users = ["tester"]
+${optionalTable("limits", overrides.limits)}
+${optionalTable("implementer", overrides.implementer)}
+${optionalTable("storage", overrides.storage)}
 `,
     "/tmp",
   );

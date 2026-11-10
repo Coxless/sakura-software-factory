@@ -1,6 +1,6 @@
 /**
  * ツール呼び出しの検査（層3）と結果の整形（層4）の型と合成関数。
- * 形は Pi（@earendil-works/pi-agent-core 1.5.1）の beforeToolCall / afterToolCall /
+ * 形は Pi（@earendil-works/pi-agent-core 1.5.0）の beforeToolCall / afterToolCall /
  * AgentToolResult に合わせてあり、004 でそのまま渡せる。設計: docs/design/04 2章
  */
 

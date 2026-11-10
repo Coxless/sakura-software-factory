@@ -244,6 +244,53 @@ describe("parseConfig: [sandbox] と [tools]（003）", () => {
   });
 });
 
+describe("parseConfig: [implementer]（004）", () => {
+  test("省略すると既定値が入る", () => {
+    const config = parseConfig(MINIMAL, BASE_DIR);
+    expect(config.implementer).toEqual({
+      max_consecutive_blocks: 5,
+      compaction_ratio: 0.7,
+      keep_recent_turns: 4,
+      max_agents_md_chars: 20000,
+      max_issue_chars: 20000,
+      max_plan_chars: 20000,
+      max_feedback_chars: 30000,
+    });
+  });
+
+  test("値を指定できる", () => {
+    const config = parseConfig(
+      `${MINIMAL}\n[implementer]\ncompaction_ratio = 0.5\nkeep_recent_turns = 2\n`,
+      BASE_DIR,
+    );
+    expect(config.implementer.compaction_ratio).toBe(0.5);
+    expect(config.implementer.keep_recent_turns).toBe(2);
+  });
+
+  test.each([
+    ["max_consecutive_blocks = 0", "/implementer/max_consecutive_blocks", "1 以上"],
+    ["max_consecutive_blocks = 51", "/implementer/max_consecutive_blocks", "50 以下"],
+    ["compaction_ratio = 0.2", "/implementer/compaction_ratio", "0.3 以上"],
+    ["compaction_ratio = 0.96", "/implementer/compaction_ratio", "0.95 以下"],
+    ["keep_recent_turns = 0", "/implementer/keep_recent_turns", "1 以上"],
+    ["keep_recent_turns = 21", "/implementer/keep_recent_turns", "20 以下"],
+    ["max_agents_md_chars = 999", "/implementer/max_agents_md_chars", "1000 以上"],
+    ["max_issue_chars = 200001", "/implementer/max_issue_chars", "200000 以下"],
+    ["max_plan_chars = 999", "/implementer/max_plan_chars", "1000 以上"],
+    ["max_feedback_chars = 200001", "/implementer/max_feedback_chars", "200000 以下"],
+  ])("範囲外はエラー: %s", (line, path, message) => {
+    expect(issuesOf(`${MINIMAL}\n[implementer]\n${line}\n`)).toEqual([
+      { path, message: expect.stringContaining(message) },
+    ]);
+  });
+
+  test("未知の項目はエラー", () => {
+    expect(issuesOf(`${MINIMAL}\n[implementer]\nmax_turns = 10\n`)).toEqual([
+      { path: "/implementer/max_turns", message: expect.stringContaining("未知") },
+    ]);
+  });
+});
+
 describe("parseConfig の [llm]（002）", () => {
   const withLlm = (lines: string) =>
     MINIMAL.replace(

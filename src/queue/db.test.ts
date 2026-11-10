@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { openDatabase, runMigrations } from "./db.ts";
 
-const TABLES = ["budget", "deployments", "job_events", "jobs", "llm_calls"];
+const TABLES = ["agent_runs", "budget", "deployments", "job_events", "jobs", "llm_calls"];
 
 function userTables(handle: ReturnType<typeof openDatabase>): string[] {
   return (
@@ -17,7 +17,7 @@ function userTables(handle: ReturnType<typeof openDatabase>): string[] {
 }
 
 describe("openDatabase / runMigrations", () => {
-  test("親ディレクトリがなければ作り、5つのテーブルを用意する", () => {
+  test("親ディレクトリがなければ作り、6つのテーブルを用意する", () => {
     const dir = mkdtempSync(join(tmpdir(), "factory-db-"));
     const path = join(dir, "nested/deeper/factory.db");
     const handle = openDatabase(path);

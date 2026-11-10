@@ -129,6 +129,21 @@ export const FactoryConfigSchema = Type.Object(
       },
       { ...strict, default: {} },
     ),
+    implementer: Type.Object(
+      {
+        /** 検査の拒否がこの回数続いたら工程を止める */
+        max_consecutive_blocks: Range(1, 50, 5),
+        /** 入力がコンテキストの上限のこの割合を超えたら古いツールの結果を縮める */
+        compaction_ratio: Type.Number({ minimum: 0.3, maximum: 0.95, default: 0.7 }),
+        /** 圧縮で残す直近のターン数 */
+        keep_recent_turns: Range(1, 20, 4),
+        max_agents_md_chars: Range(1000, 200000, 20000),
+        max_issue_chars: Range(1000, 200000, 20000),
+        max_plan_chars: Range(1000, 200000, 20000),
+        max_feedback_chars: Range(1000, 200000, 30000),
+      },
+      { ...strict, default: {} },
+    ),
   },
   strict,
 );
