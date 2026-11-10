@@ -37,5 +37,5 @@
 - Spec Kit（`/speckit-*`）で進める。設計と食い違う変更が要るときは、先に設計ドキュメントを直す
 - スキーマは TypeBox に統一する（Zod は使わない）
 - Pi は `@earendil-works/*` を使い、バージョンを完全に固定する（旧名 `@mariozechner/*` の情報は使わない）
-- LLM は OpenAI互換の Chat Completions API で呼ぶ（無償枠で使えるのはこれだけ。Responses API は使わない）。モデル名は `factory.toml` に置き、呼び出しはすべて予算ゲート（`streamFn` ラッパー）を通す
+- LLM は OpenAI互換の Chat Completions API で呼ぶ（無償枠で使えるのはこれだけ。Responses API は使わない）。開発中の動作確認は Google AI Studio の無償枠（`factory.dev.toml`）で行い、さくらは AI解禁（`docs/実装計画.md` 3章）まで呼ばない。Google AI Studio には公開してよいデータだけを送る。モデル名は `factory.toml` に置き、呼び出しはすべて予算ゲート（`streamFn` ラッパー）を通す
 - APIキーや GitHub トークンをサンドボックスのコンテナに渡さない

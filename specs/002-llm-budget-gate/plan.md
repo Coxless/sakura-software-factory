@@ -39,7 +39,7 @@
 
 | 原則 | 本機能での扱い | 判定 |
 |---|---|---|
-| I. 推論を国産・ZDRで閉じる | 提供元は さくら1つだけを登録する。URL・モデル名は `factory.toml` から読み、コードに書かない。OpenAI互換（Chat Completions）で呼ぶ。退避先へは設定変更でだけ切り替える（自動切り替えしない） | ✅ |
+| I. 推論を国産・ZDRで閉じる | 本番の提供元は さくら1つだけ。開発中だけ Google AI Studio を `factory.dev.toml` で選べる（1.2.0 の例外。`pnpm start` は さくら以外で起動しない、記録は別の DB、送るのは公開データだけ）。URL・モデル名は `factory.toml` から読み、コードに書かない。OpenAI互換（Chat Completions）で呼ぶ。退避先へは設定変更でだけ切り替える（自動切り替えしない） | ✅ |
 | II. 工程はコードで制御する | 再試行の回数に上限（`max_attempts`）と時間の上限（`request_timeout_seconds`）を設ける。予算切れは機械で読める形で返し、`failed` への遷移は 007 の状態機械が行う | ✅ |
 | III. 実装と検査を別モデルにする | 役割ごとに設定のモデル名を引く。`tools` を渡さないことは 005 が守る（本機能では制限しない）。`response_format` は使わない | ✅ |
 | IV. 隔離と最小権限 | APIキーは環境変数 `SAKURA_AI_API_KEY` からホストのプロセスだけが読む。エラー文はパターンと APIキーの値の両方でマスクしてから記録する。コンテナは関わらない | ✅ |
@@ -76,6 +76,7 @@ specs/002-llm-budget-gate/
 .
 ├── package.json             # + @earendil-works/pi-ai 1.5.0, @earendil-works/pi-agent-core 1.5.0、scripts に smoke:llm
 ├── factory.toml             # [llm] に max_attempts などを追記。スモークテスト後に base_url・モデル名を直す
+├── factory.dev.toml         # 開発用（provider = "google-ai-studio"、別の DB）
 ├── drizzle/                 # + llm_calls.error_kind のマイグレーション
 └── src/
     ├── config.ts            # [llm] に3項目（既定値つき）  + config.test.ts
@@ -83,7 +84,7 @@ specs/002-llm-budget-gate/
     ├── queue/
     │   └── schema.ts        # llm_calls に error_kind（CHECK つき）、LLM_ERROR_KINDS
     └── llm/
-        ├── provider.ts      # createSakuraModels, modelForRole, DEFAULT_SAKURA_COMPAT  + provider.test.ts
+        ├── provider.ts      # createLlmModels, modelForRole, providerOf, assertProductionProvider, DEFAULT_SAKURA_COMPAT  + provider.test.ts
         ├── budget.ts        # checkBudget, canAcceptNewJob, ensureBudgetMonth, BudgetExceededError  + budget.test.ts
         ├── stream.ts        # runGated, createGatedStreamFn, 失敗の分類, getBudgetExceeded, installStreamFnGuard  + stream.test.ts
         ├── smoke.ts         # スモークテストの確認項目（Pi 経由・素の HTTP）。CLI から分けてテストできるようにする  + smoke.test.ts（偽の fetch で）

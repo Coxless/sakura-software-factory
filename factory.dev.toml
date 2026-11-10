@@ -1,0 +1,80 @@
+# 開発用の設定（Google AI Studio の無償枠で動作確認する）。
+# 使い方: FACTORY_CONFIG=factory.dev.toml GEMINI_API_KEY=... pnpm run smoke:llm
+# - constitution 原則 I の例外。常駐するファクトリー（pnpm start）はこの設定では起動しない
+# - 無償枠の入出力は Google の学習と人のレビューに使われる。公開してよいデータ（本リポジトリ・テスト用のデータ・
+#   公開のデモ用リポジトリ）だけを送る。非公開のリポジトリのコードや秘密情報は送らない
+# - 記録は さくらの予算と混ぜないよう、別のデータベースに書く
+# 項目の説明: specs/001-foundation/contracts/factory-toml.md、specs/002-llm-budget-gate/contracts/factory-toml.md
+
+[llm]
+provider = "google-ai-studio"   # APIキーは環境変数 GEMINI_API_KEY
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+max_attempts = 3                # 最初の1回を含む試行回数の上限（1〜10）
+max_retry_delay_seconds = 60    # サーバーの待ち時間の指示がこれを超えたら再試行しない（1〜600）
+request_timeout_seconds = 300   # 1回の試行の時間の上限（10〜1800）
+
+[models]
+# 無償枠のモデル（2026-11 時点。AI Studio のモデル一覧で正確な ID を確かめて直す）
+planner = "gemini-3.8-flash"       # 計画役（ツールなし・1回呼び出し）
+implementer = "gemini-3.8-flash"   # 実装役
+verifier = "gemma-4"               # 検査役（実装役とは別系統。仮の ID）
+fallback = "gemini-3.5-flash-lite" # 退避先
+
+[budget]
+monthly_requests = 3000   # 月のリクエスト上限（無償枠の1日の上限は AI Studio 側で別にかかる）
+per_job_requests = 100    # 1ジョブのリクエスト上限
+timezone = "Asia/Tokyo"   # 月の区切りに使うタイムゾーン
+
+[limits]
+judge_retries = 2              # 判定不合格のやり直しの上限
+ci_retries = 2                 # CI 失敗後のやり直しの上限
+max_turns_per_phase = 40       # 1工程のターン数の上限
+job_timeout_minutes = 60       # ジョブ全体の時間の上限
+ci_wait_timeout_minutes = 30   # CI 待ちの時間の上限
+
+[auto_merge]
+max_diff_lines = 300   # これを超える diff は Draft PR にする
+# 変更したら自動マージしないパス（glob）
+forbidden_paths = [
+  ".github/workflows/**",
+  ".env*",
+  "**/pnpm-lock.yaml",
+  "**/package-lock.json",
+  "**/yarn.lock",
+  "deploy/**",
+]
+allowed_work_types = ["bugfix", "test", "docs", "refactor"]   # 自動マージを許す作業の種類
+
+[github]
+allowed_users = ["Coxless"]   # @agent を実行できるユーザー（書き込み権限の確認に加えて絞る）
+
+[storage]
+database_path = "data/factory.dev.db"   # 相対パスはこのファイルのディレクトリが基準
+trace_dir = "data/traces-dev"
+
+[log]
+level = "info"   # trace / debug / info / warn / error / fatal
+
+[sandbox]
+# 作業場（ジョブ専用コンテナ）。項目の説明: specs/003-sandbox-tools/contracts/factory-toml.md
+image = "factory-sandbox:latest"   # pnpm run sandbox:build で作る
+# user = "1001:1001"               # 実行ユーザー。省略時はファクトリーと同じ uid:gid（root は不可）
+cpus = 2
+memory_mb = 2048
+pids_limit = 512
+tmp_size_mb = 512                  # /tmp（HOME）の大きさ
+install_timeout_seconds = 600      # 依存のインストールの時間の上限
+
+[tools]
+bash_timeout_seconds = 120         # bash の時間の上限（既定）
+bash_max_timeout_seconds = 600     # bash で指定できる時間の上限の最大
+read_max_lines = 2000              # read_file が1回で返す行数
+max_output_chars = 20000           # これを超えるツールの結果は先頭と末尾を残して切り詰める
+# 書き込みを拒否するパス（glob）。auto_merge.forbidden_paths とは別の一覧
+deny_write_paths = [
+  ".git", ".git/**", "**/.git/**",
+  ".github/workflows/**",
+  ".env*", "**/.env*",
+  "**/pnpm-lock.yaml", "**/package-lock.json", "**/yarn.lock",
+  "deploy/**",
+]

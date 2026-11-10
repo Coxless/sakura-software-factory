@@ -254,6 +254,7 @@ describe("parseConfig の [llm]（002）", () => {
   test("省略するとリトライ・待ち時間・応答の時間の上限に既定値が入る", () => {
     const config = parseConfig(MINIMAL, BASE_DIR);
     expect(config.llm).toEqual({
+      provider: "sakura",
       base_url: "https://api.ai.sakura.ad.jp/v1",
       max_attempts: 3,
       max_retry_delay_seconds: 60,
@@ -284,6 +285,17 @@ describe("parseConfig の [llm]（002）", () => {
     ]);
   });
 
+  test("provider に google-ai-studio を指定できる（開発用）", () => {
+    const config = parseConfig(withLlm('provider = "google-ai-studio"'), BASE_DIR);
+    expect(config.llm.provider).toBe("google-ai-studio");
+  });
+
+  test("決められた以外の provider はエラー", () => {
+    expect(issuesOf(withLlm('provider = "openai"'))).toEqual([
+      { path: "/llm/provider", message: expect.stringContaining("sakura") },
+    ]);
+  });
+
   test("[llm] の未知の項目はエラー", () => {
     expect(issuesOf(withLlm("max_retries = 3"))).toEqual([
       { path: "/llm/max_retries", message: expect.stringContaining("未知の項目") },
@@ -303,9 +315,20 @@ describe("loadConfig", () => {
     expect(loadConfig(file).storage.database_path).toBe(join(dir, "data/factory.db"));
   });
 
-  test("リポジトリの factory.toml は検証を通る", () => {
+  test("リポジトリの factory.toml は検証を通り、提供元は さくら", () => {
     const config = loadConfig(resolve(import.meta.dirname, "../factory.toml"));
     expect(config.models.fallback.length).toBeGreaterThan(0);
+    expect(config.llm.provider).toBe("sakura");
+  });
+
+  test("開発用の factory.dev.toml は検証を通り、Google AI Studio と別のデータベースを使う", () => {
+    const dev = loadConfig(resolve(import.meta.dirname, "../factory.dev.toml"));
+    const prod = loadConfig(resolve(import.meta.dirname, "../factory.toml"));
+    expect(dev.llm.provider).toBe("google-ai-studio");
+    expect(dev.storage.database_path).not.toBe(prod.storage.database_path);
+    expect(dev.storage.trace_dir).not.toBe(prod.storage.trace_dir);
+    // 原則 III: 実装役と検査役は別系統
+    expect(dev.models.verifier).not.toBe(dev.models.implementer);
   });
 });
 

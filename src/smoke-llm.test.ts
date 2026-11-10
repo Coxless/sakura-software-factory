@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import { parseConfig } from "./config.ts";
+import { createLlmModels } from "./llm/provider.ts";
 import { createTestGateDeps, type FakeResponse, TEST_API_KEY } from "./llm/testing.ts";
 import { EXIT_ERROR, EXIT_FAILED, EXIT_PASSED, runSmokeCli } from "./smoke-llm.ts";
 
@@ -91,5 +93,70 @@ describe("runSmokeCli", () => {
     expect(h.stderr()).toContain("401");
     expect(h.stderr()).toContain("requests: 1");
     h.setup.close();
+  });
+});
+
+describe("runSmokeCli（開発用の Google AI Studio）", () => {
+  const devConfig = () =>
+    parseConfig(
+      `
+[llm]
+provider = "google-ai-studio"
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+[models]
+planner = "impl-model"
+implementer = "impl-model"
+verifier = "verify-model"
+fallback = "fallback-model"
+[budget]
+monthly_requests = 100
+per_job_requests = 10
+[github]
+allowed_users = ["tester"]
+`,
+      "/tmp",
+    );
+
+  test("APIキーは GEMINI_API_KEY を見る。SAKURA_AI_API_KEY だけでは LLM を呼ばずに 2", async () => {
+    const err: string[] = [];
+    const code = await runSmokeCli(
+      [],
+      { SAKURA_AI_API_KEY: TEST_API_KEY },
+      {
+        stdout: () => {},
+        stderr: (text) => err.push(text),
+        loadConfig: devConfig,
+        createDeps: () => {
+          throw new Error("呼ばれてはいけない");
+        },
+      },
+    );
+    expect(code).toBe(EXIT_ERROR);
+    expect(err.join("")).toContain("GEMINI_API_KEY");
+  });
+
+  test("GEMINI_API_KEY があれば実行し、表に provider が出る", async () => {
+    const setup = createTestGateDeps({ responses: PASSING });
+    const config = devConfig();
+    const out: string[] = [];
+    const code = await runSmokeCli(
+      [],
+      { GEMINI_API_KEY: TEST_API_KEY },
+      {
+        stdout: (text) => out.push(text),
+        stderr: () => {},
+        loadConfig: () => config,
+        createDeps: () => ({
+          deps: { ...setup.deps, config, models: createLlmModels(config) },
+          close: () => {},
+        }),
+      },
+    );
+    expect(code).toBe(EXIT_PASSED);
+    expect(out.join("")).toContain("provider: google-ai-studio  model: impl-model  mode: pi");
+    expect(setup.fake.requests[0]?.url).toBe(
+      "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    );
+    setup.close();
   });
 });

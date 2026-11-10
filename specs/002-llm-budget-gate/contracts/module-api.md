@@ -7,10 +7,16 @@
 ```ts
 const SAKURA_PROVIDER_ID = "sakura";
 const SAKURA_API_KEY_ENV = "SAKURA_AI_API_KEY";
+const GOOGLE_AI_STUDIO_API_KEY_ENV = "GEMINI_API_KEY";
+const LLM_PROVIDERS: Record<"sakura" | "google-ai-studio", { id; name; apiKeyEnv }>;
+
+function providerOf(config: FactoryConfig): LlmProvider;       // [llm].provider の提供元
+function apiKeyEnvOf(config: FactoryConfig): string;           // その APIキーの環境変数名
+function assertProductionProvider(config: FactoryConfig): void; // sakura 以外なら例外。main.ts の起動時に呼ぶ（原則 I）
 const DEFAULT_SAKURA_COMPAT: OpenAICompletionsCompat; // research R3。スモークテストの結果で直す
 
-function createSakuraModels(config: FactoryConfig, options?: { compat?: Partial<OpenAICompletionsCompat> }): Models;
-// さくらを提供元として登録した Models。factory.toml の [models] の全モデルを持つ
+function createLlmModels(config: FactoryConfig, options?: { compat?: Partial<OpenAICompletionsCompat> }): Models;
+// 設定の提供元（既定は さくら）を登録した Models。factory.toml の [models] の全モデルを持つ
 
 function modelForRole(models: Models, config: FactoryConfig, role: LlmRole): Model<"openai-completions">;
 // 役割 → factory.toml のモデル名 → Model。退避先への自動切り替えはしない
@@ -43,7 +49,7 @@ interface CallContext { jobId: number | null; phase: string; role: LlmRole }
 interface GateDeps {
   db: Db;
   config: FactoryConfig;
-  models: Models;                       // createSakuraModels の結果（テストでも本物を使う）
+  models: Models;                       // createLlmModels の結果（テストでも本物を使う）
   logger: Logger;
   apiKey?: string;                      // 省くと提供元の認証（環境変数 SAKURA_AI_API_KEY）。エラー文のマスクにも使う
   now?: () => number;                   // テスト用
@@ -97,7 +103,7 @@ function createFakeLlm(responses: FakeResponse[]): {
 // 仕込みが尽きたら fetch が "fake LLM: no more responses" の例外を投げる
 
 function createTestGateDeps(options: { responses?: FakeResponse[]; config?: TestConfigOverrides; onHang?: () => void }): {
-  deps: GateDeps;                      // :memory: の DB（マイグレーション済み）、本物の createSakuraModels、偽の fetch、待たない sleep、手動で発火できる timeoutSignal
+  deps: GateDeps;                      // :memory: の DB（マイグレーション済み）、本物の createLlmModels、偽の fetch、待たない sleep、手動で発火できる timeoutSignal
   fake: FakeLlm;
   db: Db; sqlite: Database; close(): void;
   sleeps: number[];                    // sleep に渡った待ち時間

@@ -184,6 +184,19 @@ description: "Task list for 002 llm-budget-gate"
 
 ---
 
+## Phase 9: 開発用の提供元（Google AI Studio）
+
+**Purpose**: さくらの枠を AI解禁まで使わずに、実際の LLM でハーネスを作り込めるようにする（constitution 1.2.0、FR-027〜029）
+
+- [X] T037 constitution を 1.2.0 に改定し（原則 I に開発中の例外、原則 III の開発中の組み合わせ）、`docs/design/01`・`03`、`docs/実装計画.md`、`CLAUDE.md` を同時に直す
+- [X] T038 `src/config.test.ts` に `[llm].provider` のテスト（既定は sakura、google-ai-studio を受け付ける、ほかはエラー）と、`factory.dev.toml` が検証を通り別の DB を使うテストを足す。`src/config.ts` に `LLM_PROVIDER_IDS` と `provider` を足す
+- [X] T039 `src/llm/provider.test.ts` に提供元の選択と `assertProductionProvider` のテストを足し、`src/llm/provider.ts` を `createLlmModels`・`providerOf`・`apiKeyEnvOf`・`assertProductionProvider` に直す。`stream.ts`・`smoke.ts`・`testing.ts` の APIキーの環境変数を提供元から引く
+- [X] T040 `src/smoke-llm.ts` を設定の読み込み → 提供元の APIキーの確認の順にし、表に provider を出す。`src/smoke-llm.test.ts` に GEMINI_API_KEY のテストを足す。`src/main.ts` の起動時に `assertProductionProvider` を呼ぶ
+- [X] T041 `factory.dev.toml` を足す（Google AI Studio、別の DB・軌跡の保存先、実装役 Gemini・検査役 Gemma）。contracts・data-model・quickstart を直す
+- [ ] T042 （手動）`GEMINI_API_KEY` を渡して `FACTORY_CONFIG=factory.dev.toml pnpm run smoke:llm`（`--raw`・`--role verifier` も）を実行し、モデル ID・usage・ツール呼び出しの結果を journal に書く。Gemma 4 の正確なモデル ID を確かめて `factory.dev.toml` を直す
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies

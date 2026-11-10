@@ -32,6 +32,19 @@ pnpm run check
 | 偽の LLM の仕込み・尽きたときのエラー・受け取った入力 | US5-1〜4 |
 | ゲートなしの呼び出しは例外 | SC-007 |
 
+## 2a. 開発用の LLM で試す（Google AI Studio の無償枠・手動）
+
+さくらの枠を使わずに、実際の LLM で Pi 経由のツール呼び出しの通り道を確かめる。送るのは公開してよいデータだけ。
+
+```bash
+export GEMINI_API_KEY=...   # 履歴に残さないよう注意
+FACTORY_CONFIG=factory.dev.toml pnpm run smoke:llm
+FACTORY_CONFIG=factory.dev.toml pnpm run smoke:llm -- --raw
+FACTORY_CONFIG=factory.dev.toml pnpm run smoke:llm -- --role verifier
+```
+
+記録は `data/factory.dev.db` に残る（さくらの月の消費には数えない）。`pnpm start` は この設定では起動しない。
+
 ## 2. 実機のスモークテスト（さくらのAI Engine を呼ぶ・手動）
 
 前提: `factory.toml` の `base_url` とモデル名、APIキー。1回の実行で 10 リクエスト以下を使う。

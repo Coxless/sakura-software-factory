@@ -68,6 +68,7 @@
 
 | 項目 | 型 | 説明 |
 |---|---|---|
+| `provider` | string | 提供元（`sakura` / `google-ai-studio`） |
 | `model` | string | 対象のモデル名 |
 | `mode` | `"pi"` / `"raw"` / `"raw-nostream"` | 経路（`raw` はストリーミング、`raw-nostream` は `stream: false`） |
 | `compat` | object | 使った互換フラグ（`pi` のときだけ） |

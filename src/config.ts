@@ -5,6 +5,10 @@ import Type, { type Static } from "typebox";
 import Value from "typebox/value";
 import { LOG_LEVELS } from "./log.ts";
 
+/** LLM の提供元。google-ai-studio は開発中だけ（constitution 原則 I の例外。常駐するファクトリーでは使わない） */
+export const LLM_PROVIDER_IDS = ["sakura", "google-ai-studio"] as const;
+export type LlmProviderId = (typeof LLM_PROVIDER_IDS)[number];
+
 const NonEmpty = Type.String({ minLength: 1 });
 const Count = (minimum: number, defaultValue?: number) =>
   defaultValue === undefined
@@ -32,6 +36,7 @@ export const FactoryConfigSchema = Type.Object(
   {
     llm: Type.Object(
       {
+        provider: Type.Enum([...LLM_PROVIDER_IDS], { default: "sakura" }),
         base_url: Type.String({ pattern: "^https://" }),
         /** 最初の1回を含む試行回数の上限 */
         max_attempts: Range(1, 10, 3),

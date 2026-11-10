@@ -16,7 +16,8 @@ pnpm run smoke:llm [-- --role <planner|implementer|verifier|verifier_alt|fallbac
 | `--compat key=value` | なし | 互換フラグを一時的に上書きする（複数可。値は `true` / `false` / 文字列）。`--raw` とは併用しない |
 | `--json` | なし | 結果を JSON で出す（journal に貼る用） |
 
-- 環境変数: `SAKURA_AI_API_KEY`（必須）、`FACTORY_CONFIG`（任意）
+- 環境変数: 提供元の APIキー（`SAKURA_AI_API_KEY`、開発用の Google AI Studio なら `GEMINI_API_KEY`。必須）、`FACTORY_CONFIG`（任意）
+- 開発中: `FACTORY_CONFIG=factory.dev.toml GEMINI_API_KEY=... pnpm run smoke:llm`（さくらの枠を使わない。送るのは公開してよいデータだけ）
 - 前提: `factory.toml` の読み込みとマイグレーションの適用（未適用なら適用する）
 - 呼び出しはゲートを通り、`llm_calls` に `job_id = NULL`, `phase = "smoke"` で記録される
 - 1回の実行で 10 リクエスト以下
@@ -24,7 +25,7 @@ pnpm run smoke:llm [-- --role <planner|implementer|verifier|verifier_alt|fallbac
 **出力（既定）**
 
 ```
-model: Kimi-K2.7-Code  mode: pi  compat: {"supportsDeveloperRole":false,...}
+provider: sakura  model: Kimi-K2.7-Code  mode: pi  compat: {"supportsDeveloperRole":false,...}
 [PASS] a テキストの応答が返る
 [PASS] b ツール呼び出しが構造化されて返る
 [FAIL] c 引数がツールの定義に合う  — got: {"location":"Tokyo"}

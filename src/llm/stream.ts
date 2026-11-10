@@ -21,7 +21,7 @@ import {
   ensureBudgetMonth,
   parseBudgetExceeded,
 } from "./budget.ts";
-import { SAKURA_API_KEY_ENV } from "./provider.ts";
+import { apiKeyEnvOf } from "./provider.ts";
 
 /** 呼び出しの文脈。記録と予算の判断に使う */
 export interface CallContext {
@@ -35,7 +35,7 @@ export interface CallContext {
 export interface GateDeps {
   db: Db;
   config: FactoryConfig;
-  /** createSakuraModels の結果（テストでも本物を使う） */
+  /** createLlmModels の結果（テストでも本物を使う） */
   models: Models;
   logger: Logger;
   /** APIキー。省くと提供元の認証（環境変数 SAKURA_AI_API_KEY）に任せる。マスクにも使う */
@@ -240,7 +240,7 @@ export async function runGated<T>(
   const sleep = deps.sleep ?? defaultSleep;
   const timeoutSignal = deps.timeoutSignal ?? ((ms: number) => AbortSignal.timeout(ms));
   const innerFetch = deps.fetch ?? globalThis.fetch;
-  const apiKey = deps.apiKey ?? process.env[SAKURA_API_KEY_ENV];
+  const apiKey = deps.apiKey ?? process.env[apiKeyEnvOf(deps.config)];
   const { max_attempts, max_retry_delay_seconds, request_timeout_seconds } = deps.config.llm;
   const callerSignal = options.signal;
 
@@ -417,7 +417,7 @@ export function createGatedStreamFn(deps: GateDeps, ctx: CallContext): StreamFn 
           errorMessage:
             error instanceof Error
               ? error.message
-              : maskError(String(error), deps.apiKey ?? process.env[SAKURA_API_KEY_ENV]),
+              : maskError(String(error), deps.apiKey ?? process.env[apiKeyEnvOf(deps.config)]),
           timestamp: (deps.now ?? Date.now)(),
         };
         out.push({ type: "error", reason: aborted ? "aborted" : "error", error: message });

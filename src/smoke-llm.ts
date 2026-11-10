@@ -1,6 +1,6 @@
 /**
  * pnpm run smoke:llm: さくらのAI Engine の実機スモークテスト（002 contracts/commands.md）。
- * 手動でだけ実行する（pnpm run check には含めない）。呼び出しはすべて予算ゲートを通り、
+ * 手動でだけ実行する（pnpm run check には含めない）。開発中は FACTORY_CONFIG=factory.dev.toml で Google AI Studio に向ける。呼び出しはすべて予算ゲートを通り、
  * llm_calls に job_id = NULL, phase = "smoke" で記録される。
  */
 import { resolve } from "node:path";
@@ -10,7 +10,7 @@ import { OpenAICompletionsCompatSchema } from "@earendil-works/pi-ai/providers/c
 import Type from "typebox";
 import Value from "typebox/value";
 import { ConfigError, type FactoryConfig, loadConfig } from "./config.ts";
-import { createSakuraModels, SAKURA_API_KEY_ENV } from "./llm/provider.ts";
+import { apiKeyEnvOf, createLlmModels } from "./llm/provider.ts";
 import { runSmoke, SmokeError, type SmokeMode, type SmokeReport } from "./llm/smoke.ts";
 import { type GateDeps, installStreamFnGuard } from "./llm/stream.ts";
 import { createLogger } from "./log.ts";
@@ -112,7 +112,7 @@ function parseCli(argv: string[]): CliOptions {
 }
 
 function formatReport(report: SmokeReport): string {
-  const header = [`model: ${report.model}`, `mode: ${report.mode}`];
+  const header = [`provider: ${report.provider}`, `model: ${report.model}`, `mode: ${report.mode}`];
   if (report.compat) header.push(`compat: ${JSON.stringify(report.compat)}`);
   const lines = [header.join("  ")];
   for (const check of report.checks) {
@@ -131,7 +131,7 @@ function defaultDeps(config: FactoryConfig, apiKey: string) {
   const deps: GateDeps = {
     db: handle.db,
     config,
-    models: createSakuraModels(config),
+    models: createLlmModels(config),
     logger: createLogger({ level: config.log.level }),
     apiKey,
   };
@@ -152,17 +152,19 @@ export async function runSmokeCli(
     return EXIT_ERROR;
   }
 
-  const apiKey = env[SAKURA_API_KEY_ENV];
-  if (apiKey === undefined || apiKey === "") {
-    io.stderr(`環境変数 ${SAKURA_API_KEY_ENV} が設定されていません（LLM は呼んでいません）\n`);
+  let config: FactoryConfig;
+  try {
+    config = (io.loadConfig ?? (() => loadConfig(env.FACTORY_CONFIG)))();
+  } catch (error) {
+    io.stderr(`${error instanceof ConfigError ? error.message : String(error)}\n`);
     return EXIT_ERROR;
   }
 
-  let config: FactoryConfig;
-  try {
-    config = (io.loadConfig ?? loadConfig)();
-  } catch (error) {
-    io.stderr(`${error instanceof ConfigError ? error.message : String(error)}\n`);
+  // APIキーの環境変数は設定の提供元で決まる（さくら: SAKURA_AI_API_KEY、開発用の Google AI Studio: GEMINI_API_KEY）
+  const apiKeyEnv = apiKeyEnvOf(config);
+  const apiKey = env[apiKeyEnv];
+  if (apiKey === undefined || apiKey === "") {
+    io.stderr(`環境変数 ${apiKeyEnv} が設定されていません（LLM は呼んでいません）\n`);
     return EXIT_ERROR;
   }
 

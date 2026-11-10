@@ -16,11 +16,12 @@ import Type from "typebox";
 import Value from "typebox/value";
 import { type LlmRole, llmCalls } from "../queue/schema.ts";
 import {
-  createSakuraModels,
+  apiKeyEnvOf,
+  createLlmModels,
   DEFAULT_SAKURA_COMPAT,
   type ModelRole,
   modelForRole,
-  SAKURA_API_KEY_ENV,
+  providerOf,
 } from "./provider.ts";
 import {
   type AttemptOutcome,
@@ -44,6 +45,8 @@ export interface SmokeCheck {
 }
 
 export interface SmokeReport {
+  /** 提供元（sakura / google-ai-studio） */
+  provider: string;
   model: string;
   mode: SmokeMode;
   /** 使った互換フラグ（pi のときだけ） */
@@ -297,7 +300,7 @@ export function parseChatJson(body: ChatChunk): SmokeResponse {
 
 function rawSender(deps: GateDeps, ctx: CallContext, role: ModelRole, stream: boolean) {
   const model = modelForRole(deps.models, deps.config, role);
-  const apiKey = deps.apiKey ?? process.env[SAKURA_API_KEY_ENV] ?? "";
+  const apiKey = deps.apiKey ?? process.env[apiKeyEnvOf(deps.config)] ?? "";
   const url = `${deps.config.llm.base_url.replace(/\/+$/, "")}/chat/completions`;
   const tools = [
     {
@@ -391,11 +394,11 @@ export async function runSmoke(deps: GateDeps, options: SmokeOptions): Promise<S
       },
     },
     ...(options.mode === "pi" && options.compat
-      ? { models: createSakuraModels(deps.config, { compat: options.compat }) }
+      ? { models: createLlmModels(deps.config, { compat: options.compat }) }
       : {}),
   };
   const ctx: CallContext = { jobId: null, phase: "smoke", role: recordRole(options.role) };
-  const apiKey = deps.apiKey ?? process.env[SAKURA_API_KEY_ENV];
+  const apiKey = deps.apiKey ?? process.env[apiKeyEnvOf(deps.config)];
   const sender =
     options.mode === "pi"
       ? piSender(smokeDeps, ctx, options.role)
@@ -457,6 +460,7 @@ export async function runSmoke(deps: GateDeps, options: SmokeOptions): Promise<S
   });
 
   return {
+    provider: providerOf(deps.config).id,
     model: sender.modelId,
     mode: options.mode,
     ...(compat ? { compat } : {}),

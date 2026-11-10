@@ -1,9 +1,13 @@
 import { describe, expect, test } from "vitest";
 import { parseConfig } from "../config.ts";
 import {
-  createSakuraModels,
+  apiKeyEnvOf,
+  assertProductionProvider,
+  createLlmModels,
   DEFAULT_SAKURA_COMPAT,
+  GOOGLE_AI_STUDIO_API_KEY_ENV,
   modelForRole,
+  providerOf,
   SAKURA_API_KEY_ENV,
   SAKURA_PROVIDER_ID,
 } from "./provider.ts";
@@ -27,10 +31,10 @@ per_job_requests = 100
 allowed_users = ["u"]
 `;
 
-describe("createSakuraModels", () => {
+describe("createLlmModels（さくら）", () => {
   test("[models] の全モデルを さくら の提供元で持つ（重複は1つにまとめる）", () => {
     const config = parseConfig(toml(), "/tmp");
-    const models = createSakuraModels(config);
+    const models = createLlmModels(config);
     const ids = models
       .getModels(SAKURA_PROVIDER_ID)
       .map((model) => model.id)
@@ -40,7 +44,7 @@ describe("createSakuraModels", () => {
 
   test("verifier_alt は設定があるときだけ持つ", () => {
     const config = parseConfig(toml('verifier_alt = "alt-model"'), "/tmp");
-    const ids = createSakuraModels(config)
+    const ids = createLlmModels(config)
       .getModels(SAKURA_PROVIDER_ID)
       .map((model) => model.id);
     expect(ids).toContain("alt-model");
@@ -48,7 +52,7 @@ describe("createSakuraModels", () => {
 
   test("各モデルは base_url・openai-completions・既定の互換フラグを持つ", () => {
     const config = parseConfig(toml(), "/tmp");
-    const model = createSakuraModels(config).getModel(SAKURA_PROVIDER_ID, "impl-model");
+    const model = createLlmModels(config).getModel(SAKURA_PROVIDER_ID, "impl-model");
     expect(model).toMatchObject({
       provider: SAKURA_PROVIDER_ID,
       baseUrl: "https://example.test/v1",
@@ -62,7 +66,7 @@ describe("createSakuraModels", () => {
 
   test("互換フラグは一部だけ上書きできる", () => {
     const config = parseConfig(toml(), "/tmp");
-    const model = createSakuraModels(config, {
+    const model = createLlmModels(config, {
       compat: { supportsUsageInStreaming: false },
     }).getModel(SAKURA_PROVIDER_ID, "impl-model");
     expect(model?.compat).toEqual({ ...DEFAULT_SAKURA_COMPAT, supportsUsageInStreaming: false });
@@ -76,7 +80,7 @@ describe("createSakuraModels", () => {
 describe("modelForRole", () => {
   test("役割の設定のモデル名のモデルを返す", () => {
     const config = parseConfig(toml(), "/tmp");
-    const models = createSakuraModels(config);
+    const models = createLlmModels(config);
     expect(modelForRole(models, config, "implementer").id).toBe("impl-model");
     expect(modelForRole(models, config, "verifier").id).toBe("verify-model");
     expect(modelForRole(models, config, "fallback").id).toBe("fallback-model");
@@ -84,13 +88,49 @@ describe("modelForRole", () => {
 
   test("設定にない verifier_alt は例外（退避先へは切り替えない）", () => {
     const config = parseConfig(toml(), "/tmp");
-    const models = createSakuraModels(config);
+    const models = createLlmModels(config);
     expect(() => modelForRole(models, config, "verifier_alt")).toThrow(/verifier_alt/);
   });
 
   test("登録されていないモデル名は例外（退避先へは切り替えない）", () => {
     const config = parseConfig(toml(), "/tmp");
-    const other = createSakuraModels(parseConfig(toml().replace("impl-model", "x"), "/tmp"));
+    const other = createLlmModels(parseConfig(toml().replace("impl-model", "x"), "/tmp"));
     expect(() => modelForRole(other, config, "implementer")).toThrow(/impl-model/);
+  });
+});
+
+describe("開発用の提供元（Google AI Studio）", () => {
+  const devToml = () =>
+    toml().replace(
+      'base_url = "https://example.test/v1"',
+      'provider = "google-ai-studio"\nbase_url = "https://generativelanguage.googleapis.com/v1beta/openai"',
+    );
+
+  test("provider を省くと さくら（環境変数 SAKURA_AI_API_KEY）", () => {
+    const config = parseConfig(toml(), "/tmp");
+    expect(providerOf(config)).toMatchObject({ id: "sakura", apiKeyEnv: SAKURA_API_KEY_ENV });
+    expect(apiKeyEnvOf(config)).toBe("SAKURA_AI_API_KEY");
+  });
+
+  test("google-ai-studio なら、その提供元で全モデルを持ち、APIキーは GEMINI_API_KEY", () => {
+    const config = parseConfig(devToml(), "/tmp");
+    expect(GOOGLE_AI_STUDIO_API_KEY_ENV).toBe("GEMINI_API_KEY");
+    expect(apiKeyEnvOf(config)).toBe("GEMINI_API_KEY");
+    const models = createLlmModels(config);
+    expect(models.getModels(SAKURA_PROVIDER_ID)).toEqual([]);
+    const model = modelForRole(models, config, "implementer");
+    expect(model).toMatchObject({
+      id: "impl-model",
+      provider: "google-ai-studio",
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+      api: "openai-completions",
+    });
+  });
+
+  test("常駐するファクトリーは さくら以外では起動しない（原則 I）", () => {
+    expect(() => assertProductionProvider(parseConfig(toml(), "/tmp"))).not.toThrow();
+    expect(() => assertProductionProvider(parseConfig(devToml(), "/tmp"))).toThrow(
+      /google-ai-studio/,
+    );
   });
 });

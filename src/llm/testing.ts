@@ -6,7 +6,7 @@
 import { parseConfig } from "../config.ts";
 import { createLogger } from "../log.ts";
 import { migratedMemoryDb } from "../queue/testing.ts";
-import { createSakuraModels } from "./provider.ts";
+import { createLlmModels } from "./provider.ts";
 import type { GateDeps } from "./stream.ts";
 
 export interface FakeUsage {
@@ -328,7 +328,7 @@ allowed_users = ["tester"]
 }
 
 /**
- * 予算ゲートのテスト用の依存一式: マイグレーション済みの :memory: の DB、本物の createSakuraModels、
+ * 予算ゲートのテスト用の依存一式: マイグレーション済みの :memory: の DB、本物の createLlmModels、
  * 偽の fetch、待たない sleep（待とうとした時間は sleeps に残る）、動かせる時計、手動で発火できる時間の上限。
  * `{ hang: true }` を仕込むと、その要求が届いた時点で時間の上限が発火する（onHang で差し替えられる）。
  */
@@ -359,7 +359,7 @@ export function createTestGateDeps(
   const deps: GateDeps = {
     db: handle.db,
     config,
-    models: createSakuraModels(config),
+    models: createLlmModels(config),
     logger: createLogger({ level: "fatal" }),
     apiKey: TEST_API_KEY,
     fetch: fake.fetch,

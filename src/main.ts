@@ -1,4 +1,5 @@
 import { ConfigError, type FactoryConfig, loadConfig } from "./config.ts";
+import { assertProductionProvider } from "./llm/provider.ts";
 import { installStreamFnGuard } from "./llm/stream.ts";
 import { createLogger, type Logger } from "./log.ts";
 import { openDatabase, runMigrations } from "./queue/db.ts";
@@ -10,6 +11,8 @@ function main(): number {
   let config: FactoryConfig;
   try {
     config = loadConfig();
+    // 常駐するファクトリーの推論は さくら だけ（原則 I）。開発用の Google AI Studio の設定では起動しない
+    assertProductionProvider(config);
   } catch (error) {
     // ロガーは設定のログレベルで作るので、設定の失敗は標準エラーに出す
     process.stderr.write(`${error instanceof ConfigError ? error.message : String(error)}\n`);
