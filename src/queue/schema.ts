@@ -39,6 +39,17 @@ export const LLM_CALL_STATUSES = ["ok", "error"] as const;
 export const LLM_ERROR_KINDS = ["transient", "permanent", "timeout", "aborted"] as const;
 export type LlmErrorKind = (typeof LLM_ERROR_KINDS)[number];
 export const DEPLOYMENT_STATUSES = ["running", "succeeded", "failed"] as const;
+/** ツールを使う工程の実行1回の終わり方（004 research R12） */
+export const AGENT_RUN_OUTCOMES = [
+  "completed",
+  "max_turns",
+  "timeout",
+  "budget_exceeded",
+  "blocked_repeatedly",
+  "aborted",
+  "failed",
+] as const;
+export type AgentRunOutcome = (typeof AGENT_RUN_OUTCOMES)[number];
 
 /** `column IN ('a', 'b', ...)` の CHECK 用。値はこのファイルの定数だけなので埋め込んでよい */
 function oneOf(column: AnySQLiteColumn, values: readonly string[]): SQL {
@@ -132,6 +143,45 @@ export const llmCalls = sqliteTable(
   ],
 );
 
+/**
+ * ツールを使う工程（実装など）の実行1回ごとの要約（constitution 原則 V）。
+ * 詳細は軌跡の JSONL（trace_path）に置く。004 data-model.md 1章
+ */
+export const agentRuns = sqliteTable(
+  "agent_runs",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    job_id: integer("job_id")
+      .notNull()
+      .references(() => jobs.id),
+    /** 工程は今後増えるので CHECK は付けない（llm_calls.phase と同じ） */
+    phase: text("phase").notNull(),
+    /** 同じジョブ・同じ工程の何回目か（1 始まり） */
+    attempt: integer("attempt").notNull(),
+    model: text("model").notNull(),
+    /** NULL なら実行中（または途中でファクトリーが落ちた） */
+    outcome: text("outcome", { enum: AGENT_RUN_OUTCOMES }),
+    turns: integer("turns").notNull().default(0),
+    /** この実行で増えた llm_calls の行数（リトライを含む） */
+    requests: integer("requests").notNull().default(0),
+    tool_calls: integer("tool_calls").notNull().default(0),
+    blocked_calls: integer("blocked_calls").notNull().default(0),
+    compactions: integer("compactions").notNull().default(0),
+    steers: integer("steers").notNull().default(0),
+    /** 失敗の原因（マスク済み） */
+    error: text("error"),
+    /** 軌跡のファイル（storage.trace_dir からの相対パス） */
+    trace_path: text("trace_path").notNull(),
+    started_at: integer("started_at").notNull(),
+    finished_at: integer("finished_at"),
+  },
+  (t) => [
+    unique("agent_runs_job_phase_attempt_unique").on(t.job_id, t.phase, t.attempt),
+    check("agent_runs_outcome_check", oneOf(t.outcome, AGENT_RUN_OUTCOMES)),
+    check("agent_runs_attempt_check", sql`${t.attempt} >= 1`),
+  ],
+);
+
 export const deployments = sqliteTable(
   "deployments",
   {
@@ -173,6 +223,8 @@ export type JobEvent = typeof jobEvents.$inferSelect;
 export type NewJobEvent = typeof jobEvents.$inferInsert;
 export type LlmCall = typeof llmCalls.$inferSelect;
 export type NewLlmCall = typeof llmCalls.$inferInsert;
+export type AgentRun = typeof agentRuns.$inferSelect;
+export type NewAgentRun = typeof agentRuns.$inferInsert;
 export type Deployment = typeof deployments.$inferSelect;
 export type NewDeployment = typeof deployments.$inferInsert;
 export type Budget = typeof budget.$inferSelect;

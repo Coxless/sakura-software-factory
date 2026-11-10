@@ -48,7 +48,7 @@ const WRITE_SCRIPT = `${RESOLVE}
 if [ -e "$R" ]; then echo existed; else echo created; fi
 mkdir -p -- "$(dirname -- "$R")" && cat > "$R"`;
 
-const ReadParams = Type.Object(
+export const ReadParams = Type.Object(
   {
     path: Type.String({
       minLength: 1,
@@ -60,7 +60,7 @@ const ReadParams = Type.Object(
   { additionalProperties: false },
 );
 
-const WriteParams = Type.Object(
+export const WriteParams = Type.Object(
   {
     path: Type.String({
       minLength: 1,
@@ -71,7 +71,7 @@ const WriteParams = Type.Object(
   { additionalProperties: false },
 );
 
-const EditParams = Type.Object(
+export const EditParams = Type.Object(
   {
     path: Type.String({
       minLength: 1,
@@ -89,7 +89,7 @@ const EditParams = Type.Object(
   { additionalProperties: false },
 );
 
-const BashParams = Type.Object(
+export const BashParams = Type.Object(
   {
     command: Type.String({ minLength: 1, description: "bash -c で実行するコマンド" }),
     timeout_seconds: Type.Optional(Type.Integer({ minimum: 1, description: "時間の上限（秒）" })),

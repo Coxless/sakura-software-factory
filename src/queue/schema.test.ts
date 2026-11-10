@@ -1,6 +1,8 @@
 import { asc, eq } from "drizzle-orm";
 import { describe, expect, test } from "vitest";
 import {
+  AGENT_RUN_OUTCOMES,
+  agentRuns,
   budget,
   deployments,
   jobEvents,
@@ -171,6 +173,47 @@ describe("schema", () => {
     expect(() =>
       db.insert(budget).values({ month: "2026-12", monthly_limit: 0, created_at: 1 }).run(),
     ).toThrow(/CHECK/);
+    close();
+  });
+
+  test("agent_runs: 終わり方の CHECK、attempt >= 1、(job_id, phase, attempt) の一意", () => {
+    const { db, close } = migratedMemoryDb();
+    const [inserted] = db.insert(jobs).values(job()).returning().all();
+    const jobId = inserted?.id as number;
+    const run = (attempt: number, outcome: string | null = null, phase = "implement") =>
+      db
+        .insert(agentRuns)
+        .values({
+          job_id: jobId,
+          phase,
+          attempt,
+          model: "Kimi-K2.7-Code",
+          outcome: outcome as (typeof AGENT_RUN_OUTCOMES)[number] | null,
+          trace_path: `job-${jobId}.jsonl`,
+          started_at: 1,
+        })
+        .run();
+
+    run(1);
+    const [row] = db.select().from(agentRuns).all();
+    expect(row).toMatchObject({
+      outcome: null,
+      turns: 0,
+      requests: 0,
+      tool_calls: 0,
+      blocked_calls: 0,
+      compactions: 0,
+      steers: 0,
+      error: null,
+      finished_at: null,
+    });
+    for (const [i, outcome] of AGENT_RUN_OUTCOMES.entries()) {
+      expect(() => run(i + 2, outcome)).not.toThrow();
+    }
+    expect(() => run(100, "done")).toThrow(/CHECK/);
+    expect(() => run(0)).toThrow(/CHECK/);
+    expect(() => run(1)).toThrow(/UNIQUE/);
+    expect(() => run(1, null, "judge")).not.toThrow();
     close();
   });
 });
