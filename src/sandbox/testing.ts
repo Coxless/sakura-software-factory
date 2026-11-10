@@ -45,7 +45,11 @@ export function dockerSkipReason(): Promise<string | undefined> {
 
 /** 作業場のテストを飛ばすときに、理由を出力に残すテストを1つ足す（describe の外で呼ぶ） */
 export function reportSkip(reason: string | undefined): void {
+  // CI では FACTORY_SANDBOX_REQUIRED=1 にして、作業場のテストが黙って飛ばされないようにする
+  const required = process.env.FACTORY_SANDBOX_REQUIRED === "1";
   test.runIf(reason !== undefined)("作業場のテストを飛ばした理由を出す", () => {
+    if (required)
+      throw new Error(`FACTORY_SANDBOX_REQUIRED=1 なのに作業場のテストを実行できません: ${reason}`);
     process.stderr.write(`${reason}\n`);
   });
 }

@@ -108,5 +108,5 @@
 ## R12. Docker が使えない環境でのテスト
 
 - **Decision**: 作業場を使うテスト（`*.docker.test.ts`）は、`docker info` が成功し、かつテスト用イメージ（既定 `factory-sandbox:latest`、`FACTORY_SANDBOX_TEST_IMAGE` で変更可）があるときだけ実行し、ないときは理由を出して飛ばす。検査・整形・合成・引数の検証のテストは Docker なしで必ず実行する
-- **Rationale**: FR-027・FR-028。CI（Workshop）で Docker デーモンが動くかは未確認。`pnpm run check` を Docker の有無で失敗させない
+- **Rationale**: FR-027・FR-028。ローカルの開発環境に Docker がなくても `pnpm run check` を失敗させない。CI はランナーの Docker でイメージを作り、`FACTORY_SANDBOX_REQUIRED=1` で「飛ばしたら失敗」にして、作業場のテストが黙って飛ばされないようにする
 - **Alternatives**: Docker のテストを別コマンドに分ける（実行し忘れる）、docker CLI を偽物に差し替える（隔離の確認にならない）

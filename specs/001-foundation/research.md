@@ -50,7 +50,7 @@
 
 ## R3. 品質チェックコマンド
 
-**Decision**: `pnpm run check` = `biome ci . && tsc --noEmit && vitest run`。順番は速い順（lint・フォーマット → 型 → テスト）で、最初の失敗で止める。CI（`.github/workflows/ci.yml`）も同じ `pnpm run check` を、`canonical/launch-workshop`（v1.0.1 の SHA で固定）で起動したローカルと同じ Workshop の `dev` の中で呼ぶ。`setup-base` に足したツール（008 の前に入れる gitleaks など）が CI にもそのまま入る。代わりに起動に約2分かかる（setup-node 方式は約9秒）。
+**Decision**: `pnpm run check` = `biome ci . && tsc --noEmit && vitest run`。順番は速い順（lint・フォーマット → 型 → テスト）で、最初の失敗で止める。CI（`.github/workflows/ci.yml`）も同じ `pnpm run check` を、GitHub のランナーで直接（`actions/setup-node` で Node 24、corepack で pnpm）呼ぶ。一度は `canonical/launch-workshop` でローカルと同じ Workshop の `dev` の中で動かしたが、起動のたびに Snap Store から LXD などを取得するため、Snap Store の障害（503）で CI 全体が止まった。ランナーには Docker があり、003 の作業場のテストも実行できるため、ランナーで直接動かす方式に戻した（`docs/journal/2026-11-10-ci-runner.md`）。CI に要るツールは ci.yml に書く（ローカルは `setup-base`）。
 
 **Rationale**: `biome ci` は書き込みをせずに lint とフォーマットの両方を検査するので、CI でもローカルでも同じ結果になる（FR-001・FR-002）。constitution の「CI とファクトリー内テストのコマンドをそろえる」にも合う。
 

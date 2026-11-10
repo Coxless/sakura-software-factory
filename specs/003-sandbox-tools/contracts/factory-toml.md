@@ -53,4 +53,5 @@ factory.toml の検証に失敗しました（2件）
 | 名前 | 用途 |
 |---|---|
 | `FACTORY_SANDBOX_TEST_IMAGE` | Docker を使うテストのイメージ（既定 `factory-sandbox:latest`） |
+| `FACTORY_SANDBOX_REQUIRED` | `1` のとき、Docker・イメージがなければ作業場のテストを飛ばさずに失敗にする（CI で使う） |
 | `FACTORY_SANDBOX_TEST_USER` | Docker を使うテストの実行ユーザー（既定: テストを root で動かすときは `1000:1000`、それ以外はプロセスの uid:gid） |
