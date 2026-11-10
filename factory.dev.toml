@@ -11,14 +11,14 @@ provider = "google-ai-studio"   # APIキーは環境変数 GEMINI_API_KEY
 base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
 max_attempts = 3                # 最初の1回を含む試行回数の上限（1〜10）
 max_retry_delay_seconds = 60    # サーバーの待ち時間の指示がこれを超えたら再試行しない（1〜600）
-request_timeout_seconds = 300   # 1回の試行の時間の上限（10〜1800）
+request_timeout_seconds = 120   # 1回の試行の時間の上限（10〜1800）。開発中は早めに打ち切る
 
 [models]
-# 無償枠のモデル（2026-11 時点。AI Studio のモデル一覧で正確な ID を確かめて直す）
-planner = "gemini-3.8-flash"       # 計画役（ツールなし・1回呼び出し）
-implementer = "gemini-3.8-flash"   # 実装役
-verifier = "gemma-4"               # 検査役（実装役とは別系統。仮の ID）
-fallback = "gemini-3.5-flash-lite" # 退避先
+# 無償枠のモデル（2026-11-10 に GET /v1beta/openai/models で ID を確認。gemini-3.8-flash は応答が返らなかった）
+planner = "gemini-3.5-flash-lite"       # 計画役（ツールなし・1回呼び出し）
+implementer = "gemini-3.5-flash-lite"   # 実装役
+verifier = "gemma-4-26b-a4b-it"         # 検査役（実装役とは別系統）。2026-11-10 の確認では 500 が多かった
+fallback = "gemini-3.6-flash"           # 退避先
 
 [budget]
 monthly_requests = 3000   # 月のリクエスト上限（無償枠の1日の上限は AI Studio 側で別にかかる）

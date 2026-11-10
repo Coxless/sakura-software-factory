@@ -35,6 +35,26 @@ describe.each<SmokeMode>(["pi", "raw", "raw-nostream"])("runSmoke（%s）", (mod
     setup.close();
   });
 
+  test("ツール呼び出しの extra_content（Gemini の thought_signature）を、次の要求でそのまま送り返す", async () => {
+    const signed: FakeResponse = {
+      toolCall: { name: "get_weather", args: { city: "東京" } },
+      extraContent: { google: { thought_signature: "sig-123" } },
+      usage: { input: 80, output: 12 },
+    };
+    const { setup, report } = await smoke(mode, [PONG, signed, AFTER_TOOL]);
+    expect(report.passed).toBe(true);
+    const assistant = (
+      (setup.fake.requests[2]?.messages ?? []) as { role: string; tool_calls?: unknown[] }[]
+    ).find((message) => message.role === "assistant");
+    expect(assistant?.tool_calls).toEqual([
+      expect.objectContaining({
+        id: "call_fake_1",
+        extra_content: { google: { thought_signature: "sig-123" } },
+      }),
+    ]);
+    setup.close();
+  });
+
   test("ツール呼び出しが本文に XML として漏れると (b) と (e) が不合格で、detail にマスク済みの本文", async () => {
     const leaked: FakeResponse = {
       text: `<tool_call>{"name":"get_weather","arguments":{"city":"東京"}}</tool_call> key=${TEST_API_KEY}`,

@@ -359,12 +359,58 @@ function tokenUsage(message: AssistantMessage): TokenUsage | undefined {
   return input === 0 && output === 0 ? undefined : { input, output };
 }
 
+interface RawToolCallDelta {
+  index?: number;
+  id?: string;
+  extra_content?: unknown;
+}
+
+/**
+ * 応答のチャンクから、ツール呼び出しごとの extra_content を覚える。
+ * Gemini（開発用の Google AI Studio）は thought_signature をここに入れ、次の要求で送り返さないと 400 になる。
+ * Pi の openai-completions はこの項目を保持しないので、ゲートで往復させる。さくらは返さないので影響しない。
+ */
+export function rememberToolCallExtras(
+  chunk: unknown,
+  indexToId: Map<number, string>,
+  extras: Map<string, unknown>,
+): void {
+  const choices = (chunk as { choices?: { delta?: { tool_calls?: RawToolCallDelta[] } }[] })
+    ?.choices;
+  if (!Array.isArray(choices)) return;
+  for (const choice of choices) {
+    for (const call of choice?.delta?.tool_calls ?? []) {
+      const index = typeof call.index === "number" ? call.index : 0;
+      if (typeof call.id === "string" && call.id !== "") indexToId.set(index, call.id);
+      const id = indexToId.get(index);
+      if (id !== undefined && call.extra_content !== undefined) extras.set(id, call.extra_content);
+    }
+  }
+}
+
+/** 要求の本文の assistant の tool_calls に、覚えておいた extra_content を戻す */
+export function restoreToolCallExtras(payload: unknown, extras: Map<string, unknown>): unknown {
+  if (extras.size === 0) return payload;
+  const messages = (payload as { messages?: unknown[] })?.messages;
+  if (!Array.isArray(messages)) return payload;
+  for (const message of messages as { role?: string; tool_calls?: RawToolCallDelta[] }[]) {
+    if (message?.role !== "assistant" || !Array.isArray(message.tool_calls)) continue;
+    for (const call of message.tool_calls) {
+      const extra = call.id === undefined ? undefined : extras.get(call.id);
+      if (extra !== undefined && call.extra_content === undefined) call.extra_content = extra;
+    }
+  }
+  return payload;
+}
+
 /**
  * pi-agent-core の StreamFn。内側の models.streamSimple を runGated で包む。
  * 内側のイベントは最後まで溜め、成功した試行のイベントだけを流す（途中までの応答は流さない。research R7）。
  * 失敗時は error イベント1つ（errorMessage はマスク済み。予算切れは budget_exceeded:... の形）。
  */
 export function createGatedStreamFn(deps: GateDeps, ctx: CallContext): StreamFn {
+  // ツール呼び出しの id → extra_content。StreamFn（Agent）ごとに持ち、会話の往復で使う
+  const toolCallExtras = new Map<string, unknown>();
   return (model, context, options) => {
     const out = createAssistantMessageEventStream();
     const timeoutMs = deps.config.llm.request_timeout_seconds * 1000;
@@ -376,8 +422,17 @@ export function createGatedStreamFn(deps: GateDeps, ctx: CallContext): StreamFn 
           ctx,
           model.id,
           async (signal, fetchFn) => {
+            const indexToId = new Map<number, string>();
             const inner = deps.models.streamSimple(model, context, {
               ...options,
+              onProviderStreamEvent: async (data, eventModel) => {
+                rememberToolCallExtras(data, indexToId, toolCallExtras);
+                await options?.onProviderStreamEvent?.(data, eventModel);
+              },
+              onPayload: async (payload, payloadModel) => {
+                const next = (await options?.onPayload?.(payload, payloadModel)) ?? payload;
+                return restoreToolCallExtras(next, toolCallExtras);
+              },
               ...(deps.apiKey === undefined ? {} : { apiKey: deps.apiKey }),
               maxRetries: 0,
               fetch: fetchFn,

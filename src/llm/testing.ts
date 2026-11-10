@@ -21,6 +21,8 @@ export type FakeResponse =
   /** ツール呼び出し。ストリーミングでは引数の JSON を2つの delta に分けて返す */
   | {
       toolCall: { name: string; args: Record<string, unknown> };
+      /** ツール呼び出しに付ける extra_content（Gemini の thought_signature の再現） */
+      extraContent?: Record<string, unknown>;
       text?: string;
       usage?: FakeUsage;
     }
@@ -113,6 +115,7 @@ function sseEvents(
               id: "call_fake_1",
               type: "function",
               function: { name: response.toolCall.name, arguments: args.slice(0, half) },
+              ...(response.extraContent ? { extra_content: response.extraContent } : {}),
             },
           ],
         },
@@ -157,6 +160,7 @@ function jsonCompletion(
           name: response.toolCall.name,
           arguments: JSON.stringify(response.toolCall.args),
         },
+        ...(response.extraContent ? { extra_content: response.extraContent } : {}),
       },
     ];
   }

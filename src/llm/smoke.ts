@@ -119,7 +119,7 @@ const DETAIL_LIMIT = 600;
 /** 経路によらない、1回の応答の中身 */
 interface SmokeResponse {
   text: string;
-  toolCalls: { id: string; name: string; args: unknown; argsText: string }[];
+  toolCalls: { id: string; name: string; args: unknown; argsText: string; extra?: unknown }[];
   usage?: TokenUsage;
 }
 
@@ -230,11 +230,16 @@ interface ChatChunk {
         index?: number;
         id?: string;
         function?: { name?: string; arguments?: string };
+        extra_content?: unknown;
       }[];
     };
     message?: {
       content?: string | null;
-      tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[];
+      tool_calls?: {
+        id?: string;
+        function?: { name?: string; arguments?: string };
+        extra_content?: unknown;
+      }[];
     };
   }[];
   usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
@@ -259,7 +264,7 @@ function parseArgs(argsText: string): unknown {
 export function parseChatSse(body: string): SmokeResponse {
   let text = "";
   let usage: TokenUsage | undefined;
-  const calls = new Map<number, { id: string; name: string; argsText: string }>();
+  const calls = new Map<number, { id: string; name: string; argsText: string; extra?: unknown }>();
   for (const line of body.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("data:")) continue;
@@ -275,6 +280,7 @@ export function parseChatSse(body: string): SmokeResponse {
         if (delta.id) current.id = delta.id;
         if (delta.function?.name) current.name += delta.function.name;
         if (delta.function?.arguments) current.argsText += delta.function.arguments;
+        if (delta.extra_content !== undefined) current.extra = delta.extra_content;
         calls.set(index, current);
       }
     }
@@ -293,6 +299,7 @@ export function parseChatJson(body: ChatChunk): SmokeResponse {
     name: call.function?.name ?? "",
     argsText: call.function?.arguments ?? "",
     args: parseArgs(call.function?.arguments ?? ""),
+    ...(call.extra_content === undefined ? {} : { extra: call.extra_content }),
   }));
   const usage = toUsage(body.usage);
   return { text: message?.content ?? "", toolCalls, ...(usage ? { usage } : {}) };
@@ -351,6 +358,8 @@ function rawSender(deps: GateDeps, ctx: CallContext, role: ModelRole, stream: bo
                 id: call.id,
                 type: "function",
                 function: { name: call.name, arguments: call.argsText },
+                // Gemini の thought_signature などを送り返す（さくらは付けない）
+                ...(call.extra === undefined ? {} : { extra_content: call.extra }),
               })),
             }
           : {}),

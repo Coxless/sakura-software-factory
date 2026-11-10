@@ -193,7 +193,7 @@ description: "Task list for 002 llm-budget-gate"
 - [X] T039 `src/llm/provider.test.ts` に提供元の選択と `assertProductionProvider` のテストを足し、`src/llm/provider.ts` を `createLlmModels`・`providerOf`・`apiKeyEnvOf`・`assertProductionProvider` に直す。`stream.ts`・`smoke.ts`・`testing.ts` の APIキーの環境変数を提供元から引く
 - [X] T040 `src/smoke-llm.ts` を設定の読み込み → 提供元の APIキーの確認の順にし、表に provider を出す。`src/smoke-llm.test.ts` に GEMINI_API_KEY のテストを足す。`src/main.ts` の起動時に `assertProductionProvider` を呼ぶ
 - [X] T041 `factory.dev.toml` を足す（Google AI Studio、別の DB・軌跡の保存先、実装役 Gemini・検査役 Gemma）。contracts・data-model・quickstart を直す
-- [ ] T042 （手動）`GEMINI_API_KEY` を渡して `FACTORY_CONFIG=factory.dev.toml pnpm run smoke:llm`（`--raw`・`--role verifier` も）を実行し、モデル ID・usage・ツール呼び出しの結果を journal に書く。Gemma 4 の正確なモデル ID を確かめて `factory.dev.toml` を直す
+- [X] T042 （手動。Gemini は raw / pi / raw-nostream の3経路とも6項目すべて合格。検査役の Gemma 4 は 500 が続いて途中で失敗。結果は journal に記録。thought_signature を往復させる対応を足した）`GEMINI_API_KEY` を渡して `FACTORY_CONFIG=factory.dev.toml pnpm run smoke:llm`（`--raw`・`--role verifier` も）を実行し、モデル ID・usage・ツール呼び出しの結果を journal に書く。Gemma 4 の正確なモデル ID を確かめて `factory.dev.toml` を直す
 
 ---
 
