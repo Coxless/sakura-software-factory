@@ -92,10 +92,10 @@ description: "Task list for 002 llm-budget-gate"
 - [X] T016 [US1] `src/llm/smoke.ts` を書いて T015 を通す（research R14・R15、data-model の SmokeReport）: `runSmoke(deps, { role, mode: "pi" | "raw" | "raw-nostream", compat? }): Promise<SmokeReport>`。3つの要求（ツールなし → ツールあり → ツール結果を返して続き）を送る。ツールは TypeBox で `get_weather({ city: Type.String() })` を定義し、(c) は `Value.Check` で確かめる。(e) は本文に `<tool_call`・`</tool_call>`・`<|tool_call`・`"name":"get_weather"` などの記法がないこと。`pi` は `createGatedStreamFn(deps, { jobId: null, phase: "smoke", role })` を使う。`raw` は `runGated` に「`POST {base_url}/chat/completions` を Pi 経由と同じ `stream: true`・`stream_options: { include_usage: true }`・OpenAI 形式の `tools`（`tool_choice` は送らない）で送り、SSE を読んで本文・`tool_calls`（`index` ごとに引数をつなぐ）・`usage` を取り出す試行関数」を渡す。`raw-nostream` は同じ要求を `stream: false` で送り、JSON から取り出す（APIキーは `Authorization: Bearer`）。途中で切れた SSE は試行の失敗として返す（research R14）。1回の実行で10リクエストを超えたら止める。`detail` は `maskSecrets` と APIキーの値の置き換えを通す
 - [X] T017 [US1] `src/llm/stream.ts` に `installStreamFnGuard()` を足す: `setDefaultStreamFn`（`@earendil-works/pi-agent-core`）に「`streamFn` を渡さずに呼ばれたら `Error("LLM 呼び出しは予算ゲート（createGatedStreamFn）を通すこと")` を投げる関数」を設定する。`src/llm/stream.test.ts` に、`getDefaultStreamFn()` を呼ぶと例外になるテストを足す。`src/main.ts` の起動時に呼ぶ（`src/smoke-llm.ts` からは T018 で呼ぶ）
 - [X] T018 [US1] `src/smoke-llm.ts` を書く（contracts/commands.md）: 引数 `--role`（既定 `implementer`）・`--raw`・`--no-stream`（`--raw` なしならエラー）・`--compat key=value`（複数可、`true`/`false`/数値/文字列に変換、`--raw` と併用したらエラー）・`--json` を `node:util` の `parseArgs` で読む。処理は `runSmokeCli(argv, env, io): Promise<number>`（終了コードを返す）として export し、ファイルを直接実行したときだけ `process.exit(await runSmokeCli(...))` する。LLM を呼ぶ前に `SAKURA_API_KEY_ENV` を確かめ、なければ名前を示して終了コード 2。`loadConfig` → `openDatabase` → `runMigrations` → `installStreamFnGuard` → `runSmoke` → 表（contracts/commands.md の形）か JSON を出す。全部合格で 0、不合格ありで 1、実行前の失敗・予算切れ・恒久的な HTTP エラーで 2。先に `src/smoke-llm.test.ts` を書いて失敗を確かめる: APIキーがないと LLM（偽の fetch）を呼ばずに 2 を返し、標準エラーに `SAKURA_AI_API_KEY` が出る（US1-4）／`--no-stream` だけ・`--raw --compat` の組み合わせは 2／偽の LLM で全部合格なら 0、不合格ありなら 1（US1-3）。偽の fetch と DB を差し込めるよう、`runSmokeCli` の `io` にテスト用の差し替え口を持たせる
-- [ ] T019 [US1] 実機でスモークテストを実行する（quickstart.md の2〜3）: さくらのAI Engine の正しい `base_url` とモデル名を確かめて `factory.toml` を直し（仮の値のコメントを消す）、`pnpm run smoke:llm`・`-- --raw`・`-- --role verifier` を実行する。不合格なら `--compat` を変えて再確認 → `--raw` と比べる（FR-026 の手順）。`--raw` も不合格なら `--raw --no-stream` で、さくらのストリーミング自体の問題かを切り分ける。トークン数が返らなければ `supportsUsageInStreaming` などを見直す。決まった互換フラグを `src/llm/provider.ts` の `DEFAULT_SAKURA_COMPAT` に、分かった `contextWindow` / `maxTokens` を定数に書く。`llm_calls` の増えた行数が表示の `requests` と一致することを `sqlite3` で確かめる
-- [ ] T020 [US1] 結果を `docs/journal/YYYY-MM-DD-sakura-tool-calling.md` に書く（FR-026）: 実行したコマンド、各項目の合否（出力をそのまま）、互換フラグ、モデル名、使ったリクエスト数、気づいた挙動（`tool_choice`・本文への漏れ・usage など）、Pi を続けるか切り替えるかの判断と理由。「切り替える」なら、この時点で作業を止め、`docs/design/03`（0章・5章）と constitution の技術的制約を直す計画を立ててから続ける
+- [ ] T019 [US1] **（AI解禁の日に実施）** 実機でスモークテストを実行する（quickstart.md の2〜3）: さくらのAI Engine の正しい `base_url` とモデル名を確かめて `factory.toml` を直し（仮の値のコメントを消す）、`pnpm run smoke:llm`・`-- --raw`・`-- --role verifier` を実行する。不合格なら `--compat` を変えて再確認 → `--raw` と比べる（FR-026 の手順）。`--raw` も不合格なら `--raw --no-stream` で、さくらのストリーミング自体の問題かを切り分ける。トークン数が返らなければ `supportsUsageInStreaming` などを見直す。決まった互換フラグを `src/llm/provider.ts` の `DEFAULT_SAKURA_COMPAT` に、分かった `contextWindow` / `maxTokens` を定数に書く。`llm_calls` の増えた行数が表示の `requests` と一致することを `sqlite3` で確かめる
+- [ ] T020 [US1] **（AI解禁の日に実施）** 結果を `docs/journal/YYYY-MM-DD-sakura-tool-calling.md` に書く（FR-026）: 実行したコマンド、各項目の合否（出力をそのまま）、互換フラグ、モデル名、使ったリクエスト数、気づいた挙動（`tool_choice`・本文への漏れ・usage など）、Pi を続けるか切り替えるかの判断と理由。「切り替える」なら、この時点で作業を止め、`docs/design/03`（0章・5章）と constitution の技術的制約を直す計画を立ててから続ける
 
-**Checkpoint**: Pi を続けるか切り替えるかが決まっている（目標 2026-11-11）
+**Checkpoint**: Pi を続けるか切り替えるかが決まっている（AI解禁の日に行う。実装計画 3章）
 
 ---
 
@@ -179,7 +179,7 @@ description: "Task list for 002 llm-budget-gate"
 - [X] T032 [P] SC-007 の確認: `rg -n "streamSimple|completeSimple|\.stream\(|\.complete\(|chat/completions" src --glob '!**/*.test.ts'` を実行し、`src/llm/stream.ts`（ゲートの内側）と `src/llm/smoke.ts` の `raw` 試行関数（`runGated` に渡すもの）以外に LLM を呼ぶ経路がないことを確かめる。見つかったら直す
 - [X] T033 [P] `specs/001-foundation/contracts/module-api.md` の末尾に「002 で追加」として `src/llm/*` を参照する1行を足し、詳細は `specs/002-llm-budget-gate/contracts/module-api.md` を正とする旨を書く
 - [X] T034 `pnpm run check` を通す。ゲート・予算・偽の LLM のテストが合わせて10秒以内に終わることを `vitest run src/llm` の所要時間で確かめる（SC-006）
-- [ ] T035 quickstart.md の1〜3を上から実行して、手順どおりに動くことを確かめる。食い違いがあれば quickstart.md か実装を直す
+- [ ] T035 **（手順2〜3は AI解禁の日に実施。手順1は確認済み）** quickstart.md の1〜3を上から実行して、手順どおりに動くことを確かめる。食い違いがあれば quickstart.md か実装を直す
 - [X] T036 実装中の試行錯誤を `docs/journal/YYYY-MM-DD-002-llm-budget-gate-実装.md` にまとめる（想定と違った挙動、エラー文、決めたこと、まだ分かっていないこと）
 
 ---
@@ -190,7 +190,7 @@ description: "Task list for 002 llm-budget-gate"
 
 - **Setup（Phase 1）**: すぐ始められる
 - **Foundational（Phase 2）**: Setup の後。すべてのストーリーを止める
-- **US1（Phase 3）**: Foundational の後。最優先（M0 の判断）。T019・T020 は実機と APIキーが要る
+- **US1（Phase 3）**: Foundational の後。T019・T020 は実機と APIキーが要るので、AI解禁の日（005 が偽の LLM で通ったあと）まで延期する。002 はそれ以外のタスクでマージしてよい
 - **US2（Phase 4）**: Foundational の後。US1 とは独立（`budget.ts` と `stream.test.ts` の別の箇所）
 - **US3（Phase 5）**: Foundational の後。`stream.ts` を大きく変えるので、US2 の T022・T023 の後に進めると衝突しにくい
 - **US4（Phase 6）**: US3 の後（記録の失敗の扱いが再試行のループに依存する）
@@ -237,7 +237,7 @@ T021 [US2] src/llm/budget.test.ts（canAcceptNewJob・月の境目）
 
 ### Incremental Delivery
 
-1. US1 → 判断（2026-11-11 まで）
+1. US1（T019・T020 は AI解禁の日に行い、判断する）
 2. US2 → SC-002 を自動テストで保証
 3. US3 → SC-003・SC-004
 4. US4 → SC-005、原則 V の記録の完成
@@ -249,6 +249,6 @@ T021 [US2] src/llm/budget.test.ts（canAcceptNewJob・月の境目）
 ## Notes
 
 - [P] = 別ファイルで、未完了のタスクに依存しない
-- スモークテストの実機実行（T019）は1回 10 リクエスト以下。11月の残りの枠を開発中の確認に使う（実装計画 1章）
+- スモークテストの実機実行（T019）は1回 10 リクエスト以下。AI解禁（実装計画 3章）までは実機を呼ばない
 - 予算切れ・上限超過のジョブを `failed` に遷移させるのは 007。本機能はエラーを返すまで
 - コミットは Phase か論理的なまとまりごとに行う
