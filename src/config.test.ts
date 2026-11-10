@@ -2,7 +2,13 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
-import { ConfigError, loadConfig, parseConfig, requireEnv } from "./config.ts";
+import {
+  ConfigError,
+  DEFAULT_DENY_WRITE_PATHS,
+  loadConfig,
+  parseConfig,
+  requireEnv,
+} from "./config.ts";
 
 const MINIMAL = `
 [llm]
@@ -172,6 +178,69 @@ describe("parseConfig", () => {
       BASE_DIR,
     );
     expect(config.storage.database_path).toBe("/var/lib/f.db");
+  });
+});
+
+describe("parseConfig: [sandbox] と [tools]（003）", () => {
+  test("省略すると既定値が入る", () => {
+    const config = parseConfig(MINIMAL, BASE_DIR);
+    expect(config.sandbox).toEqual({
+      image: "factory-sandbox:latest",
+      cpus: 2,
+      memory_mb: 2048,
+      pids_limit: 512,
+      tmp_size_mb: 512,
+      install_timeout_seconds: 600,
+    });
+    expect(config.sandbox.user).toBeUndefined();
+    expect(config.tools).toEqual({
+      bash_timeout_seconds: 120,
+      bash_max_timeout_seconds: 600,
+      read_max_lines: 2000,
+      max_output_chars: 20000,
+      deny_write_paths: [...DEFAULT_DENY_WRITE_PATHS],
+    });
+    expect(config.tools.deny_write_paths).toContain(".git/**");
+  });
+
+  test("値を指定できる", () => {
+    const config = parseConfig(
+      `${MINIMAL}\n[sandbox]\nuser = "1001:1001"\ncpus = 0.5\n[tools]\ndeny_write_paths = ["x/**"]\n`,
+      BASE_DIR,
+    );
+    expect(config.sandbox.user).toBe("1001:1001");
+    expect(config.sandbox.cpus).toBe(0.5);
+    expect(config.tools.deny_write_paths).toEqual(["x/**"]);
+  });
+
+  test("uid 0 と形の違う user はエラー", () => {
+    expect(issuesOf(`${MINIMAL}\n[sandbox]\nuser = "0:0"\n`)).toEqual([
+      { path: "/sandbox/user", message: expect.stringContaining("uid は 0 以外") },
+    ]);
+    expect(issuesOf(`${MINIMAL}\n[sandbox]\nuser = "node"\n`)).toEqual([
+      { path: "/sandbox/user", message: expect.stringContaining("形式") },
+    ]);
+  });
+
+  test("cpus は 0 より大きい", () => {
+    expect(issuesOf(`${MINIMAL}\n[sandbox]\ncpus = 0\n`)).toEqual([
+      { path: "/sandbox/cpus", message: expect.stringContaining("より大きく") },
+    ]);
+  });
+
+  test("bash_timeout_seconds は bash_max_timeout_seconds 以下", () => {
+    expect(issuesOf(`${MINIMAL}\n[tools]\nbash_timeout_seconds = 900\n`)).toEqual([
+      {
+        path: "/tools/bash_timeout_seconds",
+        message: "bash_max_timeout_seconds（600）以下にしてください（現在 900）",
+      },
+    ]);
+  });
+
+  test("未知の項目はエラー", () => {
+    expect(issuesOf(`${MINIMAL}\n[sandbox]\nnetwork = "host"\n`)).toEqual([
+      { path: "/sandbox/network", message: expect.stringContaining("未知") },
+    ]);
   });
 });
 

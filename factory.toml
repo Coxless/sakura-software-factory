@@ -48,3 +48,27 @@ trace_dir = "data/traces"
 
 [log]
 level = "info"   # trace / debug / info / warn / error / fatal
+
+[sandbox]
+# 作業場（ジョブ専用コンテナ）。項目の説明: specs/003-sandbox-tools/contracts/factory-toml.md
+image = "factory-sandbox:latest"   # pnpm run sandbox:build で作る
+# user = "1001:1001"               # 実行ユーザー。省略時はファクトリーと同じ uid:gid（root は不可）
+cpus = 2
+memory_mb = 2048
+pids_limit = 512
+tmp_size_mb = 512                  # /tmp（HOME）の大きさ
+install_timeout_seconds = 600      # 依存のインストールの時間の上限
+
+[tools]
+bash_timeout_seconds = 120         # bash の時間の上限（既定）
+bash_max_timeout_seconds = 600     # bash で指定できる時間の上限の最大
+read_max_lines = 2000              # read_file が1回で返す行数
+max_output_chars = 20000           # これを超えるツールの結果は先頭と末尾を残して切り詰める
+# 書き込みを拒否するパス（glob）。auto_merge.forbidden_paths とは別の一覧
+deny_write_paths = [
+  ".git", ".git/**", "**/.git/**",
+  ".github/workflows/**",
+  ".env*", "**/.env*",
+  "**/pnpm-lock.yaml", "**/package-lock.json", "**/yarn.lock",
+  "deploy/**",
+]

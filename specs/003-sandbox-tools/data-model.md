@@ -57,7 +57,7 @@ Pi の `AgentToolResult` と同じ形。
 
 | ツール | 項目 |
 |---|---|
-| 共通 | `tool`（ツール名）、`durationMs`、`error?`（エラーの種類: `invalid_args` / `not_found` / `is_directory` / `outside_workspace` / `no_match` / `multiple_matches` / `no_change` / `sandbox_unavailable` / `blocked`） |
+| 共通 | `tool`（ツール名）、`durationMs`、`error?`（エラーの種類: `invalid_args` / `not_found` / `is_directory` / `outside_workspace` / `no_match` / `multiple_matches` / `no_change` / `timed_out` / `sandbox_unavailable` / `blocked`） |
 | `read_file` | `path`、`startLine`、`endLine`、`totalLines`、`binary`、`truncated` |
 | `write_file` | `path`、`bytes`、`created` |
 | `edit_file` | `path`、`replacements` |

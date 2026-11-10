@@ -12,6 +12,20 @@ const Count = (minimum: number, defaultValue?: number) =>
     : Type.Integer({ minimum, default: defaultValue });
 const strict = { additionalProperties: false } as const;
 
+/** ツールで書き込みを拒否するパス（層3）。auto_merge.forbidden_paths（層6）とは別の一覧 */
+export const DEFAULT_DENY_WRITE_PATHS = [
+  ".git",
+  ".git/**",
+  "**/.git/**",
+  ".github/workflows/**",
+  ".env*",
+  "**/.env*",
+  "**/pnpm-lock.yaml",
+  "**/package-lock.json",
+  "**/yarn.lock",
+  "deploy/**",
+] as const;
+
 export const FactoryConfigSchema = Type.Object(
   {
     llm: Type.Object({ base_url: Type.String({ pattern: "^https://" }) }, strict),
@@ -75,6 +89,28 @@ export const FactoryConfigSchema = Type.Object(
       { level: Type.Enum([...LOG_LEVELS], { default: "info" }) },
       { ...strict, default: {} },
     ),
+    sandbox: Type.Object(
+      {
+        image: Type.String({ minLength: 1, default: "factory-sandbox:latest" }),
+        user: Type.Optional(Type.String({ pattern: "^[0-9]+:[0-9]+$" })),
+        cpus: Type.Number({ exclusiveMinimum: 0, default: 2 }),
+        memory_mb: Count(128, 2048),
+        pids_limit: Count(16, 512),
+        tmp_size_mb: Count(16, 512),
+        install_timeout_seconds: Count(1, 600),
+      },
+      { ...strict, default: {} },
+    ),
+    tools: Type.Object(
+      {
+        bash_timeout_seconds: Count(1, 120),
+        bash_max_timeout_seconds: Count(1, 600),
+        read_max_lines: Count(1, 2000),
+        max_output_chars: Count(1000, 20000),
+        deny_write_paths: Type.Array(NonEmpty, { default: [...DEFAULT_DENY_WRITE_PATHS] }),
+      },
+      { ...strict, default: {} },
+    ),
   },
   strict,
 );
@@ -134,6 +170,8 @@ function translate(error: SchemaError): ConfigIssue[] {
       return [{ path, message: `${String(params.type)} 型にしてください` }];
     case "minimum":
       return [{ path, message: `${String(params.limit)} 以上にしてください` }];
+    case "exclusiveMinimum":
+      return [{ path, message: `${String(params.limit)} より大きくしてください` }];
     case "minLength":
       return [{ path, message: `${String(params.limit)} 文字以上にしてください` }];
     case "minItems":
@@ -183,6 +221,29 @@ function crossCheck(value: Record<string, unknown>): ConfigIssue[] {
       issues.push({
         path: "/budget/timezone",
         message: `IANA のタイムゾーン名ではありません: ${timezone}`,
+      });
+    }
+  }
+  const sandbox = value.sandbox as Record<string, unknown> | undefined;
+  if (sandbox && typeof sandbox === "object" && typeof sandbox.user === "string") {
+    if (/^0+:/.test(sandbox.user)) {
+      issues.push({
+        path: "/sandbox/user",
+        message: `<uid>:<gid> の形で、uid は 0 以外にしてください（現在 "${sandbox.user}"）`,
+      });
+    }
+  }
+  const tools = value.tools as Record<string, unknown> | undefined;
+  if (tools && typeof tools === "object") {
+    const { bash_timeout_seconds: timeout, bash_max_timeout_seconds: max } = tools;
+    if (
+      Number.isInteger(timeout) &&
+      Number.isInteger(max) &&
+      (timeout as number) > (max as number)
+    ) {
+      issues.push({
+        path: "/tools/bash_timeout_seconds",
+        message: `bash_max_timeout_seconds（${max}）以下にしてください（現在 ${timeout}）`,
       });
     }
   }
