@@ -10,13 +10,13 @@
 
 ## 1. 事前の確認
 
-| 確認すること | 確かめ方 | 期待する結果 |
-|---|---|---|
-| OS | `lsb_release -ds` | `Ubuntu 24.04.x LTS` |
-| SSH の鍵でログインできる | 手元から `ssh <user>@<VPS の IP>` | パスワードを聞かれずに入れる |
-| DNS が VPS を向いている | 手元から `dig +short factory.example.jp` と `dig +short staging.example.jp` | どちらも VPS の IP |
-| さくらのパケットフィルター | コントロールパネルの「パケットフィルター」 | 22・80・443（TCP）だけを許可 |
-| さくらのAI Engine の APIキー | コントロールパネル | 手元に控えてある（チャットやリポジトリに貼らない） |
+| 確認すること                 | 確かめ方                                                                    | 期待する結果                                       |
+| ---------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------- |
+| OS                           | `lsb_release -ds`                                                           | `Ubuntu 24.04.x LTS`                               |
+| SSH の鍵でログインできる     | 手元から `ssh <user>@<VPS の IP>`                                           | パスワードを聞かれずに入れる                       |
+| DNS が VPS を向いている      | 手元から `dig +short factory.example.jp` と `dig +short staging.example.jp` | どちらも VPS の IP                                 |
+| さくらのパケットフィルター   | コントロールパネルの「パケットフィルター」                                  | 22・80・443（TCP）だけを許可                       |
+| さくらのAI Engine の APIキー | コントロールパネル                                                          | 手元に控えてある（チャットやリポジトリに貼らない） |
 
 DNS が VPS を向いていないと、Caddy の証明書の取得が失敗する（7章）。
 
@@ -75,18 +75,18 @@ deployed <コミット> (origin/main)
 
 ## 5. 確かめ方
 
-| 確認 | コマンド | 期待する結果 |
-|---|---|---|
-| サービス | `systemctl is-active factory caddy docker` | 3行とも `active` |
-| 生存確認（外から） | 手元から `curl -s https://factory.example.jp/healthz` | `{"status":"ok"}` |
-| 公開していないパス | 手元から `curl -s -o /dev/null -w '%{http_code}\n' https://factory.example.jp/` | `404` |
-| HTTP から HTTPS へ | 手元から `curl -sI http://factory.example.jp/healthz` | `308` と `Location: https://...` |
-| ログ | `journalctl -u factory -o cat -n 5` | JSON の行（`"msg":"factory started"` を含む） |
-| ファイアウォール | `sudo ufw status` | `22/tcp`・`80/tcp`・`443/tcp` だけ `ALLOW` |
-| ファクトリーのポートが外から届かない | 手元から `nc -zv -w 3 <VPS の IP> 8787` | 届かない（タイムアウトか拒否） |
-| 動いている版 | `git -C /opt/sakura-factory/app rev-parse HEAD` | 4章の `deployed` のコミット |
-| gitleaks | `gitleaks version` | `8.30.1` |
-| 自動の再起動 | `sudo systemctl kill -s KILL factory`、30 秒後に `curl -s https://factory.example.jp/healthz` | `{"status":"ok"}` |
+| 確認                                 | コマンド                                                                                      | 期待する結果                                  |
+| ------------------------------------ | --------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| サービス                             | `systemctl is-active factory caddy docker`                                                    | 3行とも `active`                              |
+| 生存確認（外から）                   | 手元から `curl -s https://factory.example.jp/healthz`                                         | `{"status":"ok"}`                             |
+| 公開していないパス                   | 手元から `curl -s -o /dev/null -w '%{http_code}\n' https://factory.example.jp/`               | `404`                                         |
+| HTTP から HTTPS へ                   | 手元から `curl -sI http://factory.example.jp/healthz`                                         | `308` と `Location: https://...`              |
+| ログ                                 | `journalctl -u factory -o cat -n 5`                                                           | JSON の行（`"msg":"factory started"` を含む） |
+| ファイアウォール                     | `sudo ufw status`                                                                             | `22/tcp`・`80/tcp`・`443/tcp` だけ `ALLOW`    |
+| ファクトリーのポートが外から届かない | 手元から `nc -zv -w 3 <VPS の IP> 8787`                                                       | 届かない（タイムアウトか拒否）                |
+| 動いている版                         | `git -C /opt/sakura-factory/app rev-parse HEAD`                                               | 4章の `deployed` のコミット                   |
+| gitleaks                             | `gitleaks version`                                                                            | `8.30.1`                                      |
+| 自動の再起動                         | `sudo systemctl kill -s KILL factory`、30 秒後に `curl -s https://factory.example.jp/healthz` | `{"status":"ok"}`                             |
 
 ステージング（`https://staging.example.jp`）は 010 でデモアプリを置くまで `502` を返す（想定どおり）。
 
@@ -109,9 +109,9 @@ diff /opt/sakura-factory/app/factory.toml /etc/sakura-factory/factory.toml
 
 ## 7. 困ったとき
 
-| 症状 | 確かめ方 | 対処 |
-|---|---|---|
-| HTTPS がつながらない | `journalctl -u caddy -n 50 --no-pager` に `obtaining certificate` の失敗 | DNS（1章）とパケットフィルターの 80・443 を確かめ、`sudo systemctl restart caddy` |
-| `factory` が止まったまま | `systemctl status factory` に `start request repeated too quickly` | `journalctl -u factory -n 100 -o cat` で原因を直し、`sudo systemctl reset-failed factory && sudo systemctl start factory` |
-| 更新した版で動かない | `update.sh` が「生存確認」で失敗 | 前の版に戻す: `sudo /opt/sakura-factory/app/deploy/scripts/update.sh <前のコミット>` |
-| setup.sh が SSH の鍵で止まる | `authorized_keys` に鍵がない | 鍵でログインできるようにしてから流し直す（締め出しを防ぐため、鍵がないとパスワードでのログインを止めない） |
+| 症状                         | 確かめ方                                                                 | 対処                                                                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| HTTPS がつながらない         | `journalctl -u caddy -n 50 --no-pager` に `obtaining certificate` の失敗 | DNS（1章）とパケットフィルターの 80・443 を確かめ、`sudo systemctl restart caddy`                                         |
+| `factory` が止まったまま     | `systemctl status factory` に `start request repeated too quickly`       | `journalctl -u factory -n 100 -o cat` で原因を直し、`sudo systemctl reset-failed factory && sudo systemctl start factory` |
+| 更新した版で動かない         | `update.sh` が「生存確認」で失敗                                         | 前の版に戻す: `sudo /opt/sakura-factory/app/deploy/scripts/update.sh <前のコミット>`                                      |
+| setup.sh が SSH の鍵で止まる | `authorized_keys` に鍵がない                                             | 鍵でログインできるようにしてから流し直す（締め出しを防ぐため、鍵がないとパスワードでのログインを止めない）                |
