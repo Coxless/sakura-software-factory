@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 import {
   ConfigError,
   DEFAULT_DENY_WRITE_PATHS,
+  isLoopbackHost,
   loadConfig,
   parseConfig,
   requireEnv,
@@ -241,6 +242,69 @@ describe("parseConfig: [sandbox] と [tools]（003）", () => {
     expect(issuesOf(`${MINIMAL}\n[sandbox]\nnetwork = "host"\n`)).toEqual([
       { path: "/sandbox/network", message: expect.stringContaining("未知") },
     ]);
+  });
+});
+
+describe("parseConfig: [http]（006）", () => {
+  test("省略すると既定値が入る", () => {
+    expect(parseConfig(MINIMAL, BASE_DIR).http).toEqual({
+      host: "127.0.0.1",
+      port: 8787,
+      shutdown_timeout_seconds: 10,
+    });
+  });
+
+  test("値を指定できる", () => {
+    const config = parseConfig(
+      `${MINIMAL}\n[http]\nhost = "::1"\nport = 9000\nshutdown_timeout_seconds = 60\n`,
+      BASE_DIR,
+    );
+    expect(config.http).toEqual({ host: "::1", port: 9000, shutdown_timeout_seconds: 60 });
+  });
+
+  test("port は 1〜65535", () => {
+    expect(issuesOf(`${MINIMAL}\n[http]\nport = 0\n`)).toEqual([
+      { path: "/http/port", message: "1 以上にしてください" },
+    ]);
+    expect(issuesOf(`${MINIMAL}\n[http]\nport = 65536\n`)).toEqual([
+      { path: "/http/port", message: "65535 以下にしてください" },
+    ]);
+  });
+
+  test("shutdown_timeout_seconds は 1〜60", () => {
+    expect(issuesOf(`${MINIMAL}\n[http]\nshutdown_timeout_seconds = 0\n`)).toEqual([
+      { path: "/http/shutdown_timeout_seconds", message: "1 以上にしてください" },
+    ]);
+    expect(issuesOf(`${MINIMAL}\n[http]\nshutdown_timeout_seconds = 61\n`)).toEqual([
+      { path: "/http/shutdown_timeout_seconds", message: "60 以下にしてください" },
+    ]);
+  });
+
+  test("空の host はエラー", () => {
+    expect(issuesOf(`${MINIMAL}\n[http]\nhost = ""\n`)).toEqual([
+      { path: "/http/host", message: "1 文字以上にしてください" },
+    ]);
+  });
+
+  test("未知の項目はエラー", () => {
+    expect(issuesOf(`${MINIMAL}\n[http]\ntls = true\n`)).toEqual([
+      { path: "/http/tls", message: expect.stringContaining("未知") },
+    ]);
+  });
+});
+
+describe("isLoopbackHost", () => {
+  test.each([
+    ["127.0.0.1", true],
+    ["127.1.2.3", true],
+    ["::1", true],
+    ["localhost", true],
+    ["0.0.0.0", false],
+    ["::", false],
+    ["192.168.0.10", false],
+    ["factory.example.jp", false],
+  ])("%s → %s", (host, expected) => {
+    expect(isLoopbackHost(host)).toBe(expected);
   });
 });
 

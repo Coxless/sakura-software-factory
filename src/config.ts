@@ -107,6 +107,17 @@ export const FactoryConfigSchema = Type.Object(
       { level: Type.Enum([...LOG_LEVELS], { default: "info" }) },
       { ...strict, default: {} },
     ),
+    http: Type.Object(
+      {
+        /** 待ち受けのアドレス。Caddy から転送するのでループバックが既定（006） */
+        host: Type.String({ minLength: 1, default: "127.0.0.1" }),
+        /** deploy/Caddyfile の転送先と合わせる */
+        port: Range(1, 65535, 8787),
+        /** 停止の合図のあと、処理中の要求を待つ上限 */
+        shutdown_timeout_seconds: Range(1, 60, 10),
+      },
+      { ...strict, default: {} },
+    ),
     sandbox: Type.Object(
       {
         image: Type.String({ minLength: 1, default: "factory-sandbox:latest" }),
@@ -327,6 +338,12 @@ export function parseConfig(
   config.storage.database_path = resolve(baseDir, config.storage.database_path);
   config.storage.trace_dir = resolve(baseDir, config.storage.trace_dir);
   return deepFreeze(config);
+}
+
+/** ループバックのアドレスか（127.0.0.0/8・::1・localhost）。外向きの待ち受けを警告するために使う */
+export function isLoopbackHost(host: string): boolean {
+  if (host === "localhost" || host === "::1") return true;
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
 }
 
 /** 設定ファイルを読む。既定は環境変数 FACTORY_CONFIG、なければ ./factory.toml */

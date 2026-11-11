@@ -78,6 +78,12 @@
 |---|---|---|---|
 | `level` | string | `"info"` | `trace`, `debug`, `info`, `warn`, `error`, `fatal` のどれか |
 
+### 後続の機能で足した表
+
+- `[sandbox]`・`[tools]`: [003 の契約](../../003-sandbox-tools/contracts/factory-toml.md)
+- `[implementer]`: [004 の契約](../../004-implementer-agent/contracts/factory-toml.md)
+- `[http]`: [006 の契約](../../006-vps-ops/contracts/factory-toml.md)
+
 ## 例（必須項目だけ）
 
 ```toml

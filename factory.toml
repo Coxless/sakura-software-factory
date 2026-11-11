@@ -52,6 +52,13 @@ trace_dir = "data/traces"
 [log]
 level = "info"   # trace / debug / info / warn / error / fatal
 
+[http]
+# 待ち受け。項目の説明: specs/006-vps-ops/contracts/factory-toml.md
+# Caddy から転送するので、外から直接届かないループバックにする。port は deploy/Caddyfile と合わせる
+host = "127.0.0.1"
+port = 8787
+shutdown_timeout_seconds = 10   # 停止の合図のあと、処理中の要求を待つ上限（1〜60）
+
 [sandbox]
 # 作業場（ジョブ専用コンテナ）。項目の説明: specs/003-sandbox-tools/contracts/factory-toml.md
 image = "factory-sandbox:latest"   # pnpm run sandbox:build で作る

@@ -29,14 +29,14 @@ description: "Task list for 006 vps-ops"
 
 ## Phase 1: Setup
 
-- [ ] T001 hono と @hono/node-server を完全固定で入れる（`pnpm add hono@4.13.17 @hono/node-server@2.1.6`）。`package.json` に `^` `~` がないことを確かめる
-- [ ] T002 [P] `package.json` に `secrets:scan`（`gitleaks git --redact --no-banner --config .gitleaks.toml .`）・`deploy:lint`（`bash deploy/scripts/lint.sh`）・`deploy:rehearsal`（`bash deploy/rehearsal/run.sh`）を足す（contracts/commands.md）
-- [ ] T003 [P] `deploy/` の骨組みを作る: `deploy/systemd/caddy.service.d/`、`deploy/scripts/`、`deploy/rehearsal/` のディレクトリと、`deploy/scripts/lib.sh`（`step <名前>`: 名前を出して現在の手順として覚える、`die <文>`: `ERROR: <手順> で失敗しました: <文>` を出して 1 で終わる、`trap` で予期しない失敗も同じ形で出す。版の定数 `NODE_VERSION=24.22.2`・`CADDY_VERSION=2.11.9`・`APP_DIR=/opt/sakura-factory/app`・`ETC_DIR=/etc/sakura-factory`・`STATE_DIR=/var/lib/sakura-factory`・`FACTORY_PORT=8787`）
+- [X] T001 hono と @hono/node-server を完全固定で入れる（`pnpm add hono@4.13.17 @hono/node-server@2.1.6`）。`package.json` に `^` `~` がないことを確かめる
+- [X] T002 [P] `package.json` に `secrets:scan`（`gitleaks git --redact --no-banner --config .gitleaks.toml .`）・`deploy:lint`（`bash deploy/scripts/lint.sh`）・`deploy:rehearsal`（`bash deploy/rehearsal/run.sh`）を足す（contracts/commands.md）
+- [X] T003 [P] `deploy/` の骨組みを作る: `deploy/systemd/caddy.service.d/`、`deploy/scripts/`、`deploy/rehearsal/` のディレクトリと、`deploy/scripts/lib.sh`（`step <名前>`: 名前を出して現在の手順として覚える、`die <文>`: `ERROR: <手順> で失敗しました: <文>` を出して 1 で終わる、`trap` で予期しない失敗も同じ形で出す。版の定数 `NODE_VERSION=24.22.2`・`CADDY_VERSION=2.11.9`・`APP_DIR=/opt/sakura-factory/app`・`ETC_DIR=/etc/sakura-factory`・`STATE_DIR=/var/lib/sakura-factory`・`FACTORY_PORT=8787`）
 
 ## Phase 2: Foundational（設定）
 
-- [ ] T004 `src/config.test.ts` に `[http]` のテストを足す: 省略時に `host = "127.0.0.1"`・`port = 8787`・`shutdown_timeout_seconds = 10`、`port = 0` と `65536` がエラー、`shutdown_timeout_seconds = 0` と `61` がエラー、`host = ""` がエラー、未知の項目がエラー（contracts/factory-toml.md の表）
-- [ ] T005 `src/config.ts` に `[http]`（`host`: 空でない文字列、既定 `"127.0.0.1"`／`port`: 1〜65535、既定 `8787`／`shutdown_timeout_seconds`: 1〜60、既定 `10`。セクションごと省略可）のスキーマを足す。ループバックかどうかを返す `isLoopbackHost(host)`（`127.0.0.0/8`・`::1`・`localhost`）を export する。`factory.toml` と `factory.dev.toml` に `[http]` を日本語のコメント付きで足す（「port は deploy/Caddyfile と合わせる」）。`specs/001-foundation/contracts/factory-toml.md` から 006 の契約へのリンクを足す
+- [X] T004 `src/config.test.ts` に `[http]` のテストを足す: 省略時に `host = "127.0.0.1"`・`port = 8787`・`shutdown_timeout_seconds = 10`、`port = 0` と `65536` がエラー、`shutdown_timeout_seconds = 0` と `61` がエラー、`host = ""` がエラー、未知の項目がエラー（contracts/factory-toml.md の表）
+- [X] T005 `src/config.ts` に `[http]`（`host`: 空でない文字列、既定 `"127.0.0.1"`／`port`: 1〜65535、既定 `8787`／`shutdown_timeout_seconds`: 1〜60、既定 `10`。セクションごと省略可）のスキーマを足す。ループバックかどうかを返す `isLoopbackHost(host)`（`127.0.0.0/8`・`::1`・`localhost`）を export する。`factory.toml` と `factory.dev.toml` に `[http]` を日本語のコメント付きで足す（「port は deploy/Caddyfile と合わせる」）。`specs/001-foundation/contracts/factory-toml.md` から 006 の契約へのリンクを足す
 
 ---
 
@@ -48,16 +48,16 @@ description: "Task list for 006 vps-ops"
 
 ### Tests for User Story 1
 
-- [ ] T006 [P] [US1] `src/http/app.test.ts` を書く（`app.request()` を使い、ポートを開かない）: `:memory:` の DB で `GET /healthz` が `200`・`{"status":"ok"}`・`Cache-Control: no-store`・`Content-Type: application/json`、`HEAD /healthz` が `200` で本文なし、DB を閉じたあと（`handle.close()`）は `503`・`{"status":"unhealthy"}` で本文にエラー文やパスを含まず、ロガーに `warn` が1回出る、`GET /nope` が `404`・`{"error":"not_found"}` で本文にパスを含まない、ハンドラーが投げたら `500`・`{"error":"internal_error"}`（contracts/http.md）
-- [ ] T007 [P] [US1] `src/http/server.test.ts` を書く: ポート 0 で起動して `address` の実ポートに `fetch` すると `/healthz` が `200`、`close()` のあと接続が拒否される、`close()` を2回呼んでも投げない、処理中の要求（テスト用に遅いルートを足したアプリ）があっても `shutdown_timeout_seconds` を過ぎたら `close()` が終わる、同じポートで2つ目を起動すると、アドレスとポートを含むエラーで reject する
+- [X] T006 [P] [US1] `src/http/app.test.ts` を書く（`app.request()` を使い、ポートを開かない）: `:memory:` の DB で `GET /healthz` が `200`・`{"status":"ok"}`・`Cache-Control: no-store`・`Content-Type: application/json`、`HEAD /healthz` が `200` で本文なし、DB を閉じたあと（`handle.close()`）は `503`・`{"status":"unhealthy"}` で本文にエラー文やパスを含まず、ロガーに `warn` が1回出る、`GET /nope` が `404`・`{"error":"not_found"}` で本文にパスを含まない、ハンドラーが投げたら `500`・`{"error":"internal_error"}`（contracts/http.md）
+- [X] T007 [P] [US1] `src/http/server.test.ts` を書く: ポート 0 で起動して `address` の実ポートに `fetch` すると `/healthz` が `200`、`close()` のあと接続が拒否される、`close()` を2回呼んでも投げない、処理中の要求（テスト用に遅いルートを足したアプリ）があっても `shutdown_timeout_seconds` を過ぎたら `close()` が終わる、同じポートで2つ目を起動すると、アドレスとポートを含むエラーで reject する
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] `src/http/app.ts` を作る: `createApp({ sqlite, logger })` が Hono アプリを返す。`GET /healthz`（HEAD は Hono の既定で同じ）で `sqlite.prepare("SELECT 1").get()` を実行し、成功で `200 {"status":"ok"}`、例外で `logger.warn({ err }, "healthz failed")` と `503 {"status":"unhealthy"}`。どちらも `Cache-Control: no-store`。`notFound` で `404 {"error":"not_found"}`、`onError` で `logger.error` と `500 {"error":"internal_error"}`。後続（007 の `/webhook`、011 の `/status`）が足す場所をコメントで示す。T006 を通す
-- [ ] T009 [US1] `src/http/server.ts` を作る: `startServer({ app, host, port, shutdownTimeoutSeconds })` が `@hono/node-server` の `serve` で待ち受け、`listening` で resolve、`error`（`EADDRINUSE` など）で `host:port` を含むエラーで reject する。返す `ServerHandle` は `address` と `close()`（`server.close()` を呼び、`shutdownTimeoutSeconds` を過ぎたら `closeAllConnections()`。2回目以降は同じ Promise を返す）（data-model.md の ServerHandle）。T007 を通す
-- [ ] T010 [US1] `src/main.test.ts` を書き、`main` の停止処理を確かめる（T011 の実装の前に書いて失敗を確かめる）: 一時 DB とポート 0 の設定で起動し、`process.emit("SIGTERM")` 相当（テストでは停止関数を直接呼べるよう `main` から `run(config, { signals })` を切り出す）で 0 が返り、DB が閉じていること。テストのために切り出した関数は `src/main.ts` の中に置く
-- [ ] T011 [US1] `src/main.ts` を常駐の形に変える: 既存の起動処理（`installStreamFnGuard` → 設定 → `assertProductionProvider` → ロガー → DB を開いてマイグレーション）のあと、DB を閉じずに `createApp` と `startServer` を呼ぶ。`host` がループバック以外なら `warn`（「Caddy を通さずに公開しています」）。`info` "factory started" に `http: { host, port }` を足す。SIGTERM・SIGINT の1回目で `close()` → DB を閉じる → `info` "factory stopped" → 終了コード 0、2回目で即座に終了（SIGINT 130・SIGTERM 143）。待ち受けの失敗は `fatal` → DB を閉じて終了コード 1。`main()` を async にし、T010 のテストのために `run(config, { signals })` を切り出して T010 を通す。ファイル先頭のコメントの「HTTP と Worker は 006・007 で足す」を「Worker は 007 で足す」に直す
-- [ ] T012 [US1] `specs/001-foundation/contracts/commands.md` の `pnpm start` の行と「001 の `pnpm start` は起動処理を終えたらそのまま終了する」の注記を、006 の contracts/commands.md に合わせて直す。quickstart.md の1章を手で実行して確かめる
+- [X] T008 [US1] `src/http/app.ts` を作る: `createApp({ sqlite, logger })` が Hono アプリを返す。`GET /healthz`（HEAD は Hono の既定で同じ）で `sqlite.prepare("SELECT 1").get()` を実行し、成功で `200 {"status":"ok"}`、例外で `logger.warn({ err }, "healthz failed")` と `503 {"status":"unhealthy"}`。どちらも `Cache-Control: no-store`。`notFound` で `404 {"error":"not_found"}`、`onError` で `logger.error` と `500 {"error":"internal_error"}`。後続（007 の `/webhook`、011 の `/status`）が足す場所をコメントで示す。T006 を通す
+- [X] T009 [US1] `src/http/server.ts` を作る: `startServer({ app, host, port, shutdownTimeoutSeconds })` が `@hono/node-server` の `serve` で待ち受け、`listening` で resolve、`error`（`EADDRINUSE` など）で `host:port` を含むエラーで reject する。返す `ServerHandle` は `address` と `close()`（`server.close()` を呼び、`shutdownTimeoutSeconds` を過ぎたら `closeAllConnections()`。2回目以降は同じ Promise を返す）（data-model.md の ServerHandle）。T007 を通す
+- [X] T010 [US1] `src/main.test.ts` を書き、`main` の停止処理を確かめる（T011 の実装の前に書いて失敗を確かめる）: 一時 DB とポート 0 の設定で起動し、`process.emit("SIGTERM")` 相当（テストでは停止関数を直接呼べるよう `main` から `run(config, { signals })` を切り出す）で 0 が返り、DB が閉じていること。テストのために切り出した関数は `src/main.ts` の中に置く
+- [X] T011 [US1] `src/main.ts` を常駐の形に変える: 既存の起動処理（`installStreamFnGuard` → 設定 → `assertProductionProvider` → ロガー → DB を開いてマイグレーション）のあと、DB を閉じずに `createApp` と `startServer` を呼ぶ。`host` がループバック以外なら `warn`（「Caddy を通さずに公開しています」）。`info` "factory started" に `http: { host, port }` を足す。SIGTERM・SIGINT の1回目で `close()` → DB を閉じる → `info` "factory stopped" → 終了コード 0、2回目で即座に終了（SIGINT 130・SIGTERM 143）。待ち受けの失敗は `fatal` → DB を閉じて終了コード 1。`main()` を async にし、T010 のテストのために `run(config, { signals })` を切り出して T010 を通す。ファイル先頭のコメントの「HTTP と Worker は 006・007 で足す」を「Worker は 007 で足す」に直す
+- [X] T012 [US1] `specs/001-foundation/contracts/commands.md` の `pnpm start` の行と「001 の `pnpm start` は起動処理を終えたらそのまま終了する」の注記を、006 の contracts/commands.md に合わせて直す。quickstart.md の1章を手で実行して確かめる
 
 **Checkpoint**: `pnpm run check` が通り、`pnpm start` で `/healthz` に応答する
 
