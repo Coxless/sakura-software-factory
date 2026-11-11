@@ -14,18 +14,23 @@ LABEL="sakura-factory.rehearsal=1"
 IMAGE="sakura-factory-rehearsal:latest"
 NAME="sakura-factory-rehearsal"
 VOLUME="sakura-factory-rehearsal-docker"
+VOLUME_CONTAINERD="sakura-factory-rehearsal-containerd"
 APP_DIR="/opt/sakura-factory/app"
 STARTED_AT="$(date +%s)"
 failures=0
 
+remove_all() {
+  docker ps -aq --filter "label=${LABEL}" | xargs -r docker rm -f >/dev/null
+  docker volume ls -q --filter "label=${LABEL}" | xargs -r docker volume rm >/dev/null
+}
+
 cleanup() {
+  rm -rf "${work:-}"
   if [[ "${REHEARSAL_KEEP:-0}" == "1" ]]; then
     printf '片付けを飛ばしました（REHEARSAL_KEEP=1）\n'
     return
   fi
-  docker ps -aq --filter "label=${LABEL}" | xargs -r docker rm -f >/dev/null
-  docker volume ls -q --filter "label=${LABEL}" | xargs -r docker volume rm >/dev/null
-  rm -rf "${work:-}"
+  remove_all
 }
 trap cleanup EXIT
 
@@ -50,14 +55,18 @@ printf '==> 予行演習のイメージ\n'
 docker build --quiet -t "$IMAGE" deploy/rehearsal >/dev/null
 
 printf '==> コンテナの起動\n'
-cleanup
+# 前回 REHEARSAL_KEEP=1 で残したものがあれば消してから始める
+remove_all
 work="$(mktemp -d)"
 git bundle create --quiet "${work}/factory.bundle" HEAD
 docker volume create --label "$LABEL" "$VOLUME" >/dev/null
-# systemd を PID 1 で動かし、中で Docker（作業場のイメージのビルド）も動かすので特権付きにする（ローカルでだけ使う）
+docker volume create --label "$LABEL" "$VOLUME_CONTAINERD" >/dev/null
+# systemd を PID 1 で動かし、中で Docker（作業場のイメージのビルド）も動かすので特権付きにする（ローカルでだけ使う）。
+# 中の Docker のデータはボリュームに置く（コンテナの overlay の上に overlay は重ねられない。
+# Docker 29 は containerd のイメージストアを使うので /var/lib/containerd も要る）
 docker run -d --name "$NAME" --label "$LABEL" --privileged --cgroupns=host \
   -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock \
-  -v "${VOLUME}:/var/lib/docker" "$IMAGE" >/dev/null
+  -v "${VOLUME}:/var/lib/docker" -v "${VOLUME_CONTAINERD}:/var/lib/containerd" "$IMAGE" >/dev/null
 for _ in $(seq 1 30); do
   state="$(in_box 'systemctl is-system-running' 2>/dev/null || true)"
   [[ "$state" == "running" || "$state" == "degraded" ]] && break
