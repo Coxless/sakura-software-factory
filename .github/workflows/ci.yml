@@ -35,3 +35,5 @@ jobs:
           # Docker やイメージがないときに、作業場のテストを飛ばさず失敗にする
           FACTORY_SANDBOX_REQUIRED: "1"
       - run: pnpm run secrets:scan
+      # 配備物の文法の検査（006）。shellcheck・systemd-analyze・Docker はランナーにある
+      - run: pnpm run deploy:lint

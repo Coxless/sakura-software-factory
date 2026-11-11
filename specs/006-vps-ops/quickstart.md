@@ -61,6 +61,7 @@ pnpm run deploy:rehearsal
 | 7 | 仮のアプリを止めて 6 | `502`。4 は `200` のまま |
 | 8 | `curl -si http://factory.test/healthz --resolve factory.test:80:127.0.0.1` | `308`、`Location: https://` |
 | 9 | `stat -c '%U:%G %a' /etc/sakura-factory/factory.env` | `root:factory 640` |
+| 9b | `stat -c '%U %a' /var/lib/sakura-factory`、`stat -c '%a' /var/lib/sakura-factory/factory.db` | `factory 750`、`640` |
 | 10 | `kill -9 <factory の PID>` から 30 秒以内に 4 | `{"status":"ok"}`（PID が変わる） |
 | 11 | `journalctl -u factory -o cat -n 1` | JSON の1行 |
 | 12 | DB のダンプのハッシュを取ってから `setup.sh` をもう一度 → ハッシュを比べる | 2回目も 0、ハッシュが同じ |
