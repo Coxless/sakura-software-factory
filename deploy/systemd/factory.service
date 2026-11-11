@@ -1,0 +1,48 @@
+# ファクトリーの systemd ユニット（006）。仕様: specs/006-vps-ops/contracts/systemd.md
+# setup.sh が /etc/systemd/system/factory.service に写す。秘密情報の値はここに書かない。
+
+[Unit]
+Description=Sakura Software Factory
+# 作業場（003）のコンテナを操作するので、Docker とネットワークのあとで起動する
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+# 5 分に 5 回まで再起動する。超えたら止まったままにして、運用者が journal を見る
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# 専用の非 root ユーザー。docker グループは作業場の操作に要る（plan の Complexity Tracking）
+User=factory
+Group=factory
+SupplementaryGroups=docker
+WorkingDirectory=/opt/sakura-factory/app
+Environment=FACTORY_CONFIG=/etc/sakura-factory/factory.toml
+Environment=NODE_ENV=production
+# 秘密情報（root:factory、0640）。ひな形は deploy/factory.env.example
+EnvironmentFile=/etc/sakura-factory/factory.env
+ExecStart=/opt/node/bin/node src/main.ts
+Restart=on-failure
+RestartSec=5
+# factory.toml の [http].shutdown_timeout_seconds（上限 60、既定 10）より長くし、自分で終わるのを待つ
+TimeoutStopSec=20
+# DB・軌跡・作業ディレクトリ（007）の置き場所 /var/lib/sakura-factory
+StateDirectory=sakura-factory
+StateDirectoryMode=0750
+UMask=0027
+# 保護設定。書き込めるのは StateDirectory だけ。PrivateTmp の /tmp は Docker デーモンから見えないので、
+# 作業場に bind mount する作業ディレクトリは /var/lib/sakura-factory の下に置く
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

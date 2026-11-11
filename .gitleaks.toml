@@ -1,0 +1,33 @@
+# gitleaks の設定。pnpm run secrets:scan（ローカル・CI）で使う。
+# 既定の規則はすべて使い、テスト用の偽の値だけを1件ずつ許可する。
+# 規則全体やディレクトリ全体は除外しない（specs/006-vps-ops/spec.md FR-032）。
+# 許可を足すときは、ファイル1つと、その偽の値だけに当たる正規表現の組にし、理由を description に書く。
+
+title = "sakura-software-factory"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "実装工程のテストで、ツールの結果のマスクを確かめるための偽の APIキー"
+condition = "AND"
+paths = ['''^src/pipeline/implement\.test\.ts$''']
+regexes = ['''^test-key-ABCDEF123$''']
+
+[[allowlists]]
+description = "偽の LLM（テスト用）が返す本文に入れる偽の APIキー。マスクの確認に使う"
+condition = "AND"
+paths = ['''^src/llm/testing\.ts$''']
+regexes = ['''^test-key-ABCDEF123$''']
+
+[[allowlists]]
+description = "ログのマスクを確かめるための偽の GitHub トークン（形だけ本物に似せた値）"
+condition = "AND"
+paths = ['''^src/log\.test\.ts$''']
+regexes = ['''^ghp_aBcD1234567890aBcD1234567890aBcD12$''']
+
+[[allowlists]]
+description = "秘密鍵のマスクを確かめるための PEM の見出し（中身は偽の値）"
+condition = "AND"
+paths = ['''^src/trace/mask\.test\.ts$''']
+regexes = ['''^-----BEGIN RSA PRIVATE KEY-----''']

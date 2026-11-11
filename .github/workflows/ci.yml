@@ -15,6 +15,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          # secrets:scan は git の履歴全体をスキャンする（006）
+          fetch-depth: 0
       # ランナーで直接動かす（Workshop は起動のたびに Snap Store に依存するため。docs/journal/2026-11-10-ci-runner.md）
       - uses: actions/setup-node@v5
         with:
@@ -22,6 +25,8 @@ jobs:
           # packageManager を見て pnpm を探しにいき、corepack を有効にする前に失敗するため切る
           package-manager-cache: false
       - run: corepack enable
+      # gitleaks（006）。Workshop・VPS と同じスクリプトで同じ版を入れる
+      - run: sudo bash scripts/install-gitleaks.sh
       - run: pnpm install --frozen-lockfile
       # 作業場のイメージ（003）。ランナーの Docker で作り、作業場のテストを実行できるようにする
       - run: pnpm run sandbox:build
@@ -29,3 +34,4 @@ jobs:
         env:
           # Docker やイメージがないときに、作業場のテストを飛ばさず失敗にする
           FACTORY_SANDBOX_REQUIRED: "1"
+      - run: pnpm run secrets:scan

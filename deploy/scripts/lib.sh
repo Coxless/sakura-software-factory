@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # 配備スクリプト（setup.sh・update.sh）が共通で使う定数と関数。source して使う。
 # 仕様: specs/006-vps-ops/contracts/deploy.md
+# 定数は source した側で使うので、未使用の警告を止める
+# shellcheck disable=SC2034
 
 # 版の固定（specs/006-vps-ops/research.md R8）
 NODE_VERSION="24.22.2"
