@@ -25,8 +25,13 @@ step "作業場のイメージ"
 docker build --quiet -t factory-sandbox:latest "${APP_DIR}/sandbox"
 
 step "マイグレーション"
-runuser -u "$FACTORY_USER" -- env "FACTORY_CONFIG=${ETC_DIR}/factory.toml" \
-  "${NODE_DIR}/bin/node" "${APP_DIR}/src/migrate.ts"
+# データの置き場所と DB のファイルは factory だけが読めるようにする（ユニットの UMask=0027 と同じ）
+install -d -o "$FACTORY_USER" -g "$FACTORY_USER" -m 0750 "$STATE_DIR"
+(
+  umask 0027
+  runuser -u "$FACTORY_USER" -- env "FACTORY_CONFIG=${ETC_DIR}/factory.toml" \
+    "${NODE_DIR}/bin/node" "${APP_DIR}/src/migrate.ts"
+)
 
 step "再起動"
 systemctl restart factory

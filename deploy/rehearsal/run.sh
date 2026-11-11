@@ -124,6 +124,8 @@ check 7 "ステージングが止まると 502、ファクトリーは 200 の�
 check 8 "HTTP は HTTPS に 308 で転送" \
   "curl -si --resolve factory.test:80:127.0.0.1 http://factory.test/healthz | grep -qE '^HTTP/1.1 308' && curl -si --resolve factory.test:80:127.0.0.1 http://factory.test/healthz | grep -qi '^location: https://'"
 check 9 "秘密情報のファイルは root:factory 640" "test \"\$(stat -c '%U:%G %a' /etc/sakura-factory/factory.env)\" = 'root:factory 640'"
+check 9b "データの置き場所と DB は factory だけが読める" \
+  "test \"\$(stat -c '%U %a' /var/lib/sakura-factory)\" = 'factory 750' && test \"\$(stat -c '%a' /var/lib/sakura-factory/factory.db)\" = 640"
 check 10 "強制終了から 30 秒以内に自動で再起動する" \
   "before=\$(systemctl show -p MainPID --value factory); kill -9 \$before; for i in \$(seq 1 30); do sleep 1; after=\$(systemctl show -p MainPID --value factory); if [ \"\$after\" != 0 ] && [ \"\$after\" != \"\$before\" ] && ${curl_factory} https://factory.test/healthz | grep -q ok; then exit 0; fi; done; exit 1"
 check 11 "journald から JSON のログを読める" "journalctl -u factory -o cat -n 1 --no-pager | python3 -c 'import json,sys; json.loads(sys.stdin.readline())'"
