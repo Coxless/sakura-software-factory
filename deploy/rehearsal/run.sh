@@ -75,7 +75,7 @@ fi
 
 printf '==> リポジトリの取得（手順書の2章。取得元は HEAD の bundle）\n'
 docker cp "${work}/factory.bundle" "${NAME}:/tmp/factory.bundle"
-in_box "git clone --quiet /tmp/factory.bundle ${APP_DIR} && git -C ${APP_DIR} checkout --quiet --detach ${commit}"
+in_box "git -c advice.detachedHead=false clone --quiet /tmp/factory.bundle ${APP_DIR} && git -C ${APP_DIR} checkout --quiet --detach ${commit}"
 
 setup="FACTORY_REPO_URL=/tmp/factory.bundle FACTORY_REF=${commit} FACTORY_SKIP_SSH=1 ${APP_DIR}/deploy/scripts/setup.sh"
 
