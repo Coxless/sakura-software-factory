@@ -15,6 +15,8 @@ interface GitHubPort {
   createIssueComment(req: { repo: string; issueNumber: number; body: string }): Promise<string>;
   /** git に渡す短命のトークンと既定のブランチ */
   getCloneAccess(req: { repo: string }): Promise<{ token: string; defaultBranch: string }>;
+  /** Issue の題と本文（jobs に保存しないので Worker が準備のときに取る）。本文が null なら空文字 */
+  getIssue(req: { repo: string; issueNumber: number }): Promise<{ title: string; body: string }>;
 }
 
 /** 生の本文と署名のヘッダーを定数時間で比べる */
@@ -40,30 +42,46 @@ function cloneForJob(req: { repo: string; token: string; defaultBranch: string; 
 ## `src/pipeline/`
 
 ```ts
-type FailureKind = "clone_failed" | "install_failed" | "pipeline_failed" | "budget_exceeded" | "timeout"
-  | "shipping_not_available" | "restarted" | "stopped" | "internal_error";
+type FailureKind = "clone_failed" | "install_failed" | "pipeline_failed" | "judge_rejected" | "budget_exceeded"
+  | "timeout" | "shipping_not_available" | "restarted" | "stopped" | "internal_error";
 
 /** 状態を1つ進める。表にない遷移・現在の状態が from でないときは StateTransitionError */
 function transition(db: Db, jobId: number, from: JobStatus, to: JobStatus, now: number, detail?: object): Job;
 function canTransition(from: JobStatus, to: JobStatus): boolean;
 
-/** 005 の入口（data-model.md の PipelinePort） */
-type PipelinePort = (input: PipelineInput) => Promise<PipelineOutcome>;
+/** 005 の入口（runPipelineInSandbox と同じ形）。PipelineInput・PipelineResult は src/pipeline/run.ts のもの */
+type PipelinePort = (input: Omit<PipelineInput, "workspace">) => Promise<PipelineResult>;
+
+/** 005 の結果を分類する（research R2 の表）。passed は shipping_not_available、rejected は judge_rejected など */
+function classifyOutcome(result: PipelineResult): { kind: FailureKind; detail: string };
+
+/** onPhase の中身。現在の状態と同じなら何もしない。表にない遷移は warn のログだけで例外を投げない */
+function advancePhase(deps: WorkerDeps, jobId: number, phase: PipelinePhase): void;
 
 interface WorkerDeps {
   db: Db; config: FactoryConfig; logger: Logger; github: GitHubPort; pipeline: PipelinePort;
-  /** 003 の依存のインストール。テストでは偽物 */
-  install: (workdir: string, signal: AbortSignal) => Promise<void>;
-  /** 003 の作業場の片付け（removeStaleSandboxes）。jobId を省くと全部。テストでは偽物 */
+  /**
+   * 003 の依存のインストール（installDependencies に ["sh", "-c", config.pipeline.install_command]）。
+   * 終了コードと標準エラーの末尾を返す。install_command が空なら Worker は呼ばない。テストでは偽物
+   */
+  install: (jobId: number, workdir: string) => Promise<{ exitCode: number; stderrTail: string }>;
+  /**
+   * 003 の作業場の片付け（removeStaleSandboxes）。jobId を省くと全部。
+   * 停止の合図・期限で、インストール中のコンテナを消して install を戻らせるのにも使う（research R11）。テストでは偽物
+   */
   removeSandboxes: (jobId?: number) => Promise<void>;
   now?: () => number;
+  /** ジョブの期限の長さ。既定は [limits] job_timeout_minutes。テストで短くする */
+  jobTimeoutMs?: number;
+  /** stop() が処理中のジョブを待つ上限。既定 5000。過ぎたら状態を変えずに resolve（research R11） */
+  stopTimeoutMs?: number;
 }
 
 interface Worker {
   start(): void;
   /** 受付が積んだときに呼ぶ。待ちを打ち切ってすぐ取り出す */
   wake(): void;
-  /** 取り出しを止め、処理中のジョブを中断して failed（stopped）にしてから resolve */
+  /** 取り出しを止め、処理中のジョブを中断して failed（stopped）にしてから resolve。stopTimeoutMs を過ぎたら状態を変えずに resolve */
   stop(): Promise<void>;
 }
 function createWorker(deps: WorkerDeps): Worker;

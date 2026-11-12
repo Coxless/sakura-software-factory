@@ -11,7 +11,7 @@ description: "Task list for 007 github-intake"
 
 **Tests**: 含める。FR-033 と SC-001〜SC-009 が自動テストでの確認を前提にしているため。各ストーリーで、テストを先に書いて失敗を確かめてから実装する。
 
-**Organization**: ユーザーストーリーごとにまとめる。US1（署名）→ US2（受付）は 005 に依存しないので先に作れる。US4（報告）は US3（Worker）が使うので US3 の前に置く。US3 は 005 の入口を `PipelinePort` の偽物で作り、本物へのつなぎは 005 のマージ後（T034）に行う。
+**Organization**: ユーザーストーリーごとにまとめる。US1（署名）→ US2（受付）は 005 に依存しないので先に作れる。US4（報告）は US3（Worker）が使うので US3 の前に置く。005 はマージ済みなので、US3 は 005 の `runPipelineInSandbox` を `PipelinePort`（同じ形の関数）として受け取り、テストでは `PipelineResult` を返す偽物を渡す。
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -30,8 +30,8 @@ description: "Task list for 007 github-intake"
 ## Phase 1: Setup
 
 - [ ] T001 octokit と @octokit/webhooks を完全固定で入れる（`pnpm add octokit@5.0.5 @octokit/webhooks@14.2.0`）。`package.json` に `^` `~` がないことを確かめる。`pnpm-workspace.yaml` の `allowBuilds` に新しい推移的な依存のビルドが要るかを確かめ、要らなければ足さない
-- [ ] T002 `src/config.test.ts` に追加の項目のテストを足す（contracts/factory-toml.md の表）: 省略時に `github.webhook_max_body_kb = 1024`・`github.max_instruction_chars = 20000`・`worker.poll_interval_seconds = 5`・`storage.work_dir` が設定ファイルの場所を基準にした `data/work` の絶対パス。範囲外（`webhook_max_body_kb` 63・25601、`max_instruction_chars` 99・200001、`poll_interval_seconds` 0・301）がエラー。未知の項目がエラー
-- [ ] T003 `src/config.ts` に T002 の項目を足し（`[worker]` はセクションごと省略可、`work_dir` は `database_path` と同じく `resolve(baseDir, ...)`）、`factory.toml`・`factory.dev.toml` に日本語のコメント付きで足す。`specs/001-foundation/contracts/factory-toml.md` の「後続の機能で足した表」に 007 のリンクを足す
+- [ ] T002 `src/config.test.ts` に追加の項目のテストを足す（contracts/factory-toml.md の表）: 省略時に `github.webhook_max_body_kb = 1024`・`github.max_instruction_chars = 20000`・`worker.poll_interval_seconds = 5`・`storage.work_dir` が設定ファイルの場所を基準にした `data/work` の絶対パス・`pipeline.install_command = "pnpm install --frozen-lockfile"`、`install_command = ""` を受け付ける。範囲外（`webhook_max_body_kb` 63・25601、`max_instruction_chars` 99・200001、`poll_interval_seconds` 0・301）がエラー。未知の項目がエラー
+- [ ] T003 `src/config.ts` に T002 の項目を足し（`[worker]` はセクションごと省略可、`work_dir` は `database_path` と同じく `resolve(baseDir, ...)`）、`factory.toml`・`factory.dev.toml` に日本語のコメント付きで足す（`install_command` は 005 の `[pipeline]` の `check_commands` の隣）。`specs/001-foundation/contracts/factory-toml.md` の「後続の機能で足した表」に 007 のリンクを足し
 
 ## Phase 2: Foundational（状態機械・キュー・GitHub 層の型）
 
@@ -66,10 +66,10 @@ description: "Task list for 007 github-intake"
 **Independent Test**: T010 のペイロードと偽の GitHub（権限・失敗）と予算の残りを変えて、contracts/webhook.md の 5〜10 を確かめる
 
 - [ ] T014 [P] [US2] `src/github/events.test.ts` を書く: `parseAgentCommand` の表（`@agent 直して` → `直して`、`@agent\n続き` → `続き`、先頭の空行は飛ばす、`@agentx`・`@agent-bot`・`> @agent`・行の途中・コードブロックの中 → undefined、`@agent` だけ → 空文字）、`toAgentRequest` が T010 の各ペイロードで contracts/module-api.md の `kind`・`reason` を返す、本文が `max_chars` を超えたら切り詰める、TypeBox でペイロードの必要な項目だけを検証し、欠けていれば `ignored` ではなく例外（`400` にする）
-- [ ] T015 [US2] `src/github/events.ts` を作る（T014 を通す）: ペイロードの TypeBox のスキーマ（`action`・`issue.number`・`issue.title`・`issue.body`・`issue.state`・`issue.pull_request`・`comment.id`・`comment.body`・`comment.user.login`・`comment.user.type`・`comment.performed_via_github_app`・`repository.full_name`）、`parseAgentCommand`、`toAgentRequest`
+- [ ] T015 [US2] `src/github/events.ts` を作る（T014 を通す）: ペイロードの TypeBox のスキーマ（`action`・`issue.number`・`issue.state`・`issue.pull_request`・`comment.id`・`comment.body`・`comment.user.login`・`comment.user.type`・`comment.performed_via_github_app`・`repository.full_name`）、`parseAgentCommand`、`toAgentRequest`
 - [ ] T016 [US2] `src/http/webhook.test.ts` の後半を書く（contracts/webhook.md の 5〜10）: 対象でないペイロードは `202 ignored` でジョブ 0、権限 `write`／`maintain`／`admin` かつ許可ユーザー（大文字と小文字を区別しない）で `202 queued` とジョブ1件・`eyes` のリアクション1回、`read`・`triage`・許可ユーザーでない人は `202 ignored` でジョブ 0・コメント 0、権限の確認が例外か 5 秒を超えたら `500` でジョブ 0、空の依頼は `202 usage` で使い方のコメント1回、予算の残りが不足なら `202 budget_exhausted`・`intake_stopped_at` が入り・コメント1回、同じ配送を2回で `duplicate` とジョブ1件・リアクション1回、リアクションが失敗してもジョブは残り `job_events` に `reaction_failed`、DB に書けなければ `500`、積んだら `wake` が1回呼ばれる。応答が 1 秒以内（偽の GitHub、SC-004）
 - [ ] T017 [US2] `src/http/webhook.ts` に受付の流れを足す（T016 を通す。research R6）: 判定 → 権限（`AbortSignal.timeout(5000)`）→ 予算（`canAcceptNewJob`）→ `enqueueJob` → 応答。リアクション・コメント・`wake` は応答を返したあとに行う（`queueMicrotask` などで応答を待たせない。失敗はログと `job_events`）。ログには配送の ID と結果を `info` で出し、依頼の本文は出さない
-- [ ] T018 [US2] `src/github/client.ts` に本物の `GitHubPort` を作る（octokit の `App`。`getPermission` は `GET /repos/{owner}/{repo}/collaborators/{username}/permission`、`addReaction`、`createIssueComment`、`getCloneAccess` は `GET /repos/{owner}/{repo}` の `default_branch` とインストールトークン。インストールは `GET /repos/{owner}/{repo}/installation` で引いてプロセスの中で覚える）。単体テストは書かず（GitHub を呼ぶため）、型と T008 の偽物と同じ振る舞いになることをコメントで示す。秘密鍵は `GITHUB_APP_PRIVATE_KEY_PATH` のファイルから読む
+- [ ] T018 [US2] `src/github/client.ts` に本物の `GitHubPort` を作る（octokit の `App`。`getPermission` は `GET /repos/{owner}/{repo}/collaborators/{username}/permission`、`addReaction`、`createIssueComment`、`getCloneAccess` は `GET /repos/{owner}/{repo}` の `default_branch` とインストールトークン、`getIssue` は `GET /repos/{owner}/{repo}/issues/{issue_number}` の `title`・`body`（null は空文字）。インストールは `GET /repos/{owner}/{repo}/installation` で引いてプロセスの中で覚える）。単体テストは書かず（GitHub を呼ぶため）、型と T008 の偽物と同じ振る舞いになることをコメントで示す。秘密鍵は `GITHUB_APP_PRIVATE_KEY_PATH` のファイルから読む
 
 **Checkpoint**: 記録したペイロードで、正しい依頼だけが積まれる（SC-002・SC-003）
 
@@ -81,7 +81,7 @@ description: "Task list for 007 github-intake"
 
 **Independent Test**: `failJob` を各分類で呼び、偽の GitHub に付いたコメントの回数・項目・伏せ字を確かめる
 
-- [ ] T019 [P] [US4] `src/pipeline/report.test.ts` を書く: contracts/report.md の文面（分類ごとの説明、止まった工程、消費したリクエスト数〔`llm_calls` に行を足して数える〕、作業ブランチ、`shipping_not_available` の詳細）、詳細は 2000 文字で切り詰める、`ghp_` のトークンと PEM の見出しが伏せ字になる、`failJob` を2回呼んでもコメントは1回で、`job_events` に `report_posted` が1件、投稿が失敗したらジョブは `failed` のまま `job_events` に `report_failed` が残り例外を投げない、`failed` になって `failure_reason` が `<分類>: <説明>` の形、終わりの状態のジョブには何もしない、作業ブランチがないときは「なし」と表示する（SC-005・SC-006）
+- [ ] T019 [P] [US4] `src/pipeline/report.test.ts` を書く: contracts/report.md の文面（分類ごとの説明〔`judge_rejected` を含む10種〕、止まった工程、消費したリクエスト数〔`llm_calls` に行を足して数える〕、作業ブランチ、やり直し・変更の行〔005 の結果があるときだけ〕、分類ごとの詳細）、詳細は 2000 文字で切り詰める、`ghp_` のトークンと PEM の見出しが伏せ字になる、`failJob` を2回呼んでもコメントは1回で、`job_events` に `report_posted` が1件、投稿が失敗したらジョブは `failed` のまま `job_events` に `report_failed` が残り例外を投げない、`failed` になって `failure_reason` が `<分類>: <説明>` の形、終わりの状態のジョブには何もしない、作業ブランチがないときは「なし」と表示する、準備で止まったときは「止まった工程」が「準備」になる（SC-005・SC-006）
 - [ ] T020 [US4] `src/pipeline/report.ts` を作る（T019 を通す）: `renderFailureReport`・`renderUsage`・`renderBudgetExhausted`（contracts/report.md）と、`src/pipeline/worker.ts` から使う `failJob`（状態を `failed` にする遷移 → 報告済みかの確認 → `maskSecrets` → 投稿 → 記録）。T017 の使い方・予算切れのコメントもこの関数で本文を作るように直す
 
 ---
@@ -94,11 +94,19 @@ description: "Task list for 007 github-intake"
 
 - [ ] T021 [P] [US3] `src/github/git.test.ts` を書く: 一時ディレクトリの bare リポジトリ（既定のブランチ `main`、コミット1つ）を `baseUrl` に `file://` で渡し、`cloneForJob` が浅く取得して作業ブランチ `agent/issue-7-job-3` を作る、作業ディレクトリの `.git/config` と `git remote get-url origin` にトークンの文字列がない、渡したトークンは git の子プロセスの環境変数（`GIT_CONFIG_VALUE_0`）にだけ入る（`execa` の呼び出しを記録して確かめる）、取得の失敗のエラーの文にトークンが入らない（伏せ字）、`AbortSignal` で中断できる（SC-006）
 - [ ] T022 [US3] `src/github/git.ts` を作る（T021 を通す。research R8）: `cloneForJob`。リモートの URL は `baseUrl ?? "https://github.com"` と `repo` から作る。`git clone --depth 1 --single-branch --branch <defaultBranch>` → `git -C <dir> switch -c <branch>`。トークンは `GIT_CONFIG_COUNT`・`GIT_CONFIG_KEY_0`・`GIT_CONFIG_VALUE_0` で渡し、`GIT_TERMINAL_PROMPT=0` を付ける
-- [ ] T023 [US3] `src/pipeline/worker.test.ts` を書く（偽の GitHub、偽の `install`、偽の 005 の入口、T021 の bare リポジトリ、一時の `work_dir`）: `queued` が2つなら古い順に1つずつ処理し、入口が同時に2回呼ばれない（入口の中で待たせて確かめる。SC-007）、`wake` で待ちを打ち切ってすぐ取り出す、入口が `onPhase` を呼ぶと `implementing` → `testing` → `judging` と移り記録が残る、入口が `pass` を返すと報告（`shipping_not_available`、判定の理由入り）が1回で `failed`、`fail` を返すとその分類で `failed`、取得の失敗は `clone_failed`、インストールの失敗は `install_failed`、入口の例外は `internal_error`、`[limits] job_timeout_minutes` を超えると入口の `signal` が中断され `timeout`（テストでは時間を短くできるよう `WorkerDeps` に時間の上限の上書きを持たせる）、どの終わり方でも `work_dir/job-<id>` が残らず、作業場の片付け（偽物）が呼ばれる（SC-008）、`branch` 列に作業ブランチの名前が入る、`install` と入口に渡る作業ディレクトリの `.git/config` にトークンがない、偽の GitHub が返したトークンの文字列がキャプチャしたログに1度も現れない（SC-006）
-- [ ] T024 [US3] `src/pipeline/worker.ts` を作る（T023 を通す。research R7）: `PipelinePort` と入出力の型（data-model.md）、`createWorker`（取り出しのループ、`wake`、1件の処理、時間の上限の `AbortController`、`finally` での片付け）。作業ディレクトリは `join(config.storage.work_dir, \`job-${id}\`, "repo")`。インストールは 003 の `installDependencies` を `pnpm install --frozen-lockfile` で呼ぶ本物の関数を `main.ts` で組み立てる
-- [ ] T025 [US3] `src/main.ts` を直す: `requireEnv` で `GITHUB_APP_ID`・`GITHUB_APP_PRIVATE_KEY_PATH`・`GITHUB_WEBHOOK_SECRET` を読み（なければ名前を含むエラーで終了コード 1）、`client.ts` の `GitHubPort` と Worker を組み立てて `createApp` に `webhook` を渡す。005 の入口は、005 がマージされるまでは「`pipeline_failed`: 計画から判定までの工程（005）がまだ組み込まれていません」を返す仮の入口にする。`src/main.test.ts` の既存のテストが通るよう、`startFactory` に GitHub と入口を差し込めるようにする
+- [ ] T023 [US3] `src/pipeline/worker.test.ts` を書く（偽の GitHub、偽の `install`、偽の 005 の入口〔`PipelineResult` を返す〕、T021 の bare リポジトリ、一時の `work_dir`）:
+  - 順番: `queued` が2つなら古い順に1つずつ処理し、入口が同時に2回呼ばれない（入口の中で待たせて確かめる。SC-007）、`wake` で待ちを打ち切ってすぐ取り出す
+  - 入口に渡るもの: `workdir`、偽の GitHub の `getIssue` の題と本文、`jobs.instruction`、`deadline` = 取り出した時刻 + `job_timeout_minutes`、`plan` を渡さない、`branch` 列に作業ブランチの名前が入る
+  - `onPhase`: 入口が `planning`(0) → `implementing`(1) → `testing`(1) → `implementing`(1) → `testing`(1) → `judging`(1) → `implementing`(2) → `implementing`(3) と呼ぶと、同じ状態の2回（`planning`・`implementing`→`implementing`）は記録されず、ほかは `state_changed` が1件ずつ残る。表にない遷移（例 `planning` → `judging`）は状態を変えず `warn` のログが残り、例外を投げない
+  - 結果の分類（research R2 の表）: `passed` → `shipping_not_available`（詳細に `verdict.reasons`）、`rejected` → `judge_rejected`（詳細に `reason`）、`failed` → `pipeline_failed`、`budget_exceeded`・`timeout` → 同名、`aborted` → `stopped`、入口の例外 → `internal_error`。どれも報告は1回で `failed`。報告にやり直しの回数と diff の数が入る
+  - 準備の失敗: `getIssue` か取得の失敗は `clone_failed`（報告の「止まった工程」は「準備」）、`install` の終了コードが 0 以外は `install_failed`（詳細に標準エラーの末尾）、`install_command = ""` なら `install` を呼ばずに入口に進む
+  - 期限: 準備の途中で期限を過ぎたら `timeout`（テストでは `WorkerDeps` の `now`・`jobTimeoutMs` で短くする）。取得に渡る合図が期限で中断され、`clone_failed` ではなく `timeout` になる。インストール中に期限が来たら `removeSandboxes(jobId)` が呼ばれ、`install` の終了コードが 0 以外でも `timeout` になる
+  - 片付け: どの終わり方でも `work_dir/job-<id>` が残らず、`removeSandboxes(jobId)` が呼ばれる（SC-008）
+  - トークン: `install` と入口に渡る作業ディレクトリの `.git/config` にトークンがない、偽の GitHub が返したトークンの文字列がキャプチャしたログに1度も現れない（SC-006）
+- [ ] T024 [US3] `src/pipeline/worker.ts` を作る（T023 を通す。research R2・R7）: `PipelinePort`（005 の `PipelineInput`・`PipelineResult` を `import type`）、`classifyOutcome`、`advancePhase`、`createWorker`（取り出しのループ、`wake`、1件の処理、期限の計算、停止の `AbortController`、`finally` での片付け）。作業ディレクトリは `join(config.storage.work_dir, \`job-${id}\`, "repo")`
+- [ ] T025 [US3] `src/main.ts` を直す: `requireEnv` で `GITHUB_APP_ID`・`GITHUB_APP_PRIVATE_KEY_PATH`・`GITHUB_WEBHOOK_SECRET` と、提供元の APIキー（`SAKURA_AI_API_KEY`。`src/llm/provider.ts` の `apiKeyEnv`）を読み（なければ名前を含むエラーで終了コード 1）、`client.ts` の `GitHubPort` と Worker を組み立てて `createApp` に `webhook` を渡す。005 の入口は `src/pipeline-dev.ts` の `defaultDeps` と同じ形で `GateDeps`（`createLlmModels`・`installStreamFnGuard` 済み）を作り、`(input) => runPipelineInSandbox({ gate }, input)` にする。`install` は 003 の `installDependencies` に `["sh", "-c", config.pipeline.install_command]` を渡し、標準エラーの末尾 2000 文字をマスクして返す。`install_command` が空なら起動時に `warn` を出す。`src/main.test.ts` の既存のテストが通るよう、`startFactory` に GitHub・入口・`install` を差し込めるようにする
 
-**Checkpoint**: 偽の入口で、積んだジョブが報告まで1件ずつ流れる
+**Checkpoint**: 偽の入口で、積んだジョブが報告まで1件ずつ流れる。本物の入口は `main.ts` でつながっている
 
 ---
 
@@ -108,7 +116,7 @@ description: "Task list for 007 github-intake"
 
 **Independent Test**: 中断された状態のジョブと残骸を用意して起動・停止する
 
-- [ ] T026 [P] [US5] `src/pipeline/worker.test.ts` に足す: `recoverOnStartup` が `planning`〜`judging` のジョブを `failed`（`restarted`）にして各1回報告し、`queued` と `pr_opened` には触らない、`work_dir` の下の `job-*` を消し、作業場の残骸の片付け（003 の `removeStaleSandboxes` の偽物）を呼ぶ。`stop()` で取り出しが止まり、処理中のジョブの入口の `signal` が中断され `failed`（`stopped`）になってから resolve する、処理中のジョブがなければすぐ resolve する
+- [ ] T026 [P] [US5] `src/pipeline/worker.test.ts` に足す: `recoverOnStartup` が `planning`〜`judging` のジョブを `failed`（`restarted`）にして各1回報告し、`queued` と `pr_opened` には触らない、`work_dir` の下の `job-*` を消し、作業場の残骸の片付け（003 の `removeStaleSandboxes` の偽物）を呼ぶ。`stop()` で取り出しが止まり、処理中のジョブの入口の `signal` が中断され `failed`（`stopped`）になってから resolve する（入口が `aborted` を返す偽物で）、インストール中に `stop()` すると `removeSandboxes(jobId)` が呼ばれて `install` が戻り `stopped` になる、入口が `stopTimeoutMs`（テストでは 50）を過ぎても戻らなければ、状態を変えず報告もせずに resolve し、続けて `recoverOnStartup` を呼ぶと `restarted` で1回報告される、処理中のジョブがなければすぐ resolve する
 - [ ] T027 [US5] `src/pipeline/worker.ts` に `recoverOnStartup` と `stop()` を足し（T026 を通す）、`src/main.ts` で、HTTP の待ち受けの前に `recoverOnStartup` → Worker の `start()`、停止の合図では Worker の `stop()` → HTTP の停止の順にする。006 の `installSignalHandlers` の停止関数に組み込む
 
 ---
@@ -118,18 +126,18 @@ description: "Task list for 007 github-intake"
 - [ ] T028 [P] `deploy/factory.env.example` に `GITHUB_APP_ID=`・`GITHUB_APP_PRIVATE_KEY_PATH=/etc/sakura-factory/github-app.pem`・`GITHUB_WEBHOOK_SECRET=` を足す。`deploy/scripts/setup.sh` の「設定と秘密情報」で、3つが空でないこと、秘密鍵のファイルがあり `root:factory`・`640` であることを確かめ、`factory.toml` の初回の書き換えに `work_dir = "/var/lib/sakura-factory/work"` を足す。`deploy/rehearsal/run.sh` の偽の値に3つと偽の秘密鍵のファイルを足す（起動時に GitHub は呼ばない）
 - [ ] T029 [P] `deploy/README.md` に GitHub App の作り方（contracts/github-app.md の権限・イベント・Webhook の URL と秘密）と、秘密鍵の置き方、`500` のときに App の「Recent Deliveries」から再送する手順を足す
 - [ ] T030 [P] `docs/design/03` の4章 #1・5章（GitHub 連携・データ・キュー）・8章と `04` の2章 層1を、plan.md の「設計ドキュメントとの差分」どおりに直す
-- [ ] T031 `pnpm run check`・`pnpm run secrets:scan`・`pnpm run deploy:lint` を通す。記録したペイロードに実在のアカウント名やメールアドレスがないことを `git grep` で確かめる
+- [ ] T031 `pnpm run check`・`pnpm run secrets:scan`・`pnpm run deploy:lint` を通す。記録したペイロードに実在のアカウント名やメールアドレスがないことを `git grep` で確かめる。`git grep -l octokit -- src ':!src/github/'` が空であること（FR-030）を確かめる
 - [ ] T032 quickstart.md の2章を手で実行する（署名なしで `401`、偽の App ID で `500`）。結果を journal に書く
-- [ ] T033 quickstart.md の3章（テスト用のリポジトリと本物の GitHub App）を1回実行し、結果を journal に書く（M2 の作業。GitHub App の作成は運用者が行う）
-- [ ] T034 005 のマージ後に、005 の入口を `PipelinePort` に合わせるつなぎを `src/pipeline/worker.ts`（または 005 の入口の隣）に書き、T025 の仮の入口と差し替える。005 の工程の境目で `onPhase` を呼ぶよう、005 と 007 のどちらを直すかを決めて plan.md に追記する
+- [ ] T033 quickstart.md の3章（テスト用のリポジトリと本物の GitHub App）を1回実行し、結果を journal に書く（M2 の作業。GitHub App の作成は運用者が行う）。AI解禁の前は `[models].verifier` を `implementer` と同じにして、LLM を呼ばずに 2行目の報告まで確かめる（解禁後にもう1回）
+- [ ] T034 [P] `src/pipeline/run.ts` の `runPipelineInSandbox` の説明のコメント（007 の `failureKind` への対応）を research R2 の表（`rejected` → `judge_rejected`、`aborted` → `stopped`、`passed` → `shipping_not_available`）に合わせて直す。コードは変えない
 
 ---
 
 ## Dependencies & Execution Order
 
 - Phase 1 → Phase 2 → Phase 3（US1）→ Phase 4（US2）→ Phase 5（US4）→ Phase 6（US3）→ Phase 7（US5）→ Phase 8
-- **005 に依存しないのは Phase 1〜6 と Phase 7・8 の T028〜T033**。T034 だけが 005 のマージを待つ
-- **006（PR #6）に依存する**: `src/http/app.ts`・`src/main.ts`・`deploy/` を直すので、006 のブランチの上で作るか、006 のマージ後に作る
+- 005（PR #10）はマージ済み。T023〜T025 は 005 の `src/pipeline/run.ts` の型と `runPipelineInSandbox` を使う
+- 006（PR #6）もマージ済み。`src/http/app.ts`・`src/main.ts`・`deploy/` は 006 のものを直す
 - T013 と T017 は同じ `webhook.ts`、T012 と T016 は同じ `webhook.test.ts` なので、それぞれ順に行う
 - T020 は T017 のコメントの本文を差し替えるので T017 のあと
 - T025・T027 は同じ `main.ts` なので順に行う
@@ -140,7 +148,7 @@ description: "Task list for 007 github-intake"
 - US1: T009・T010
 - US4: T019 は US2 と並行できる（`report.ts` は受付に依存しない）
 - US3: T021 は US2・US4 と並行できる
-- Phase 8: T028・T029・T030
+- Phase 8: T028・T029・T030・T034
 
 ## Parallel Example: Phase 2
 
@@ -154,11 +162,10 @@ Task: "T008 src/github/port.ts と testing.ts を作る"
 
 ### MVP First
 
-1. Phase 1・2 → Phase 3（US1）→ Phase 4（US2）で、Issue の `@agent` が安全にジョブとして積まれる。005 なしで本物の GitHub で確かめられる（T033 の1・3・4）
+1. Phase 1・2 → Phase 3（US1）→ Phase 4（US2）で、Issue の `@agent` が安全にジョブとして積まれる。LLM を呼ばずに本物の GitHub で確かめられる（T033 の1・3・4）
 
 ### Incremental Delivery
 
 1. US1 → US2（受付）
-2. US4（報告）→ US3（Worker。仮の 005 の入口で、報告まで流れる）
+2. US4（報告）→ US3（Worker。テストは偽の入口、`main.ts` は本物の 005 の入口）
 3. US5（起動と停止）
-4. 005 のマージ後に T034 で本物の工程につなぐ

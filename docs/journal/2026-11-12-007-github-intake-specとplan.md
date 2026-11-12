@@ -47,6 +47,45 @@
 
 ## まだ分かっていないこと
 
-- 005 の入口の形（`onPhase` を 005 が呼ぶか、007 が工程を分けて呼ぶか）
+- 005 の入口の形（`onPhase` を 005 が呼ぶか、007 が工程を分けて呼ぶか） → 005 のマージで決まった（下の「005 のマージ後に plan を見直した」）
 - `octokit` 5.0.5 と Node 24 の型除去の組み合わせで問題が出ないか
 - `gh webhook forward` で、ローカルの `/webhook` に本物の配送を転送できるか（quickstart の3章）
+
+## 005 のマージ後に plan を見直した
+
+005（PR #10）が main に入ったので、`007-github-intake` を `origin/main`（31e23f7）にリベースした（衝突なし）。007 の plan は「005 の入口が未定」という前提で `PipelinePort` を自前で定義していたので、005 の実物（`src/pipeline/run.ts`）と突き合わせた。
+
+### 食い違っていたこと
+
+| # | 007 の plan の想定 | 005 の実物 | 直したこと |
+|---|---|---|---|
+| 1 | 入口は 007 の型 `{ verdict, summary, failureKind }` を返す | `runPipelineInSandbox(deps, input) → PipelineResult`（`outcome` が6種、`diff`・`plan`・`verdict` 付き） | 007 で型を詰め直さず、`PipelineResult` をそのまま受け取る。分類は Worker の `classifyOutcome` だけで行う。詰め直すと 008 が使う `diff`・`plan.work_type` を捨てることになる |
+| 2 | 判定の不合格は `pipeline_failed` に含める（data-model）／`judge_rejected` がある（research R10） | `rejected` を `failed` と分けて返す | 007 の文書どうしでも食い違っていた。`judge_rejected` を分類に足した |
+| 3 | `onPhase` で `planning` → `implementing` → `testing` → `judging` と1回ずつ進む | 最初に `planning`(0) を呼ぶ（ジョブは取り出した時点で `planning`）。実装工程がターン数の上限で終わると `testing` を通らず、次の回で `implementing` → `implementing` | 同じ状態なら何もしない。いまの `transition` は同じ状態を「表にない遷移」として拒否するので、そのままだと毎ジョブ例外のログが出ていた（005 は `onPhase` の例外を握りつぶすので工程は止まらない） |
+| 4 | 時間の上限は 007 の `AbortController` で 005 を止める | 005 は `deadline`（Unix ミリ秒）を必須で受け取り、自分で `timeout` を返す | 期限を `started_at + job_timeout_minutes` で決めて渡す。`signal` は停止の合図だけにする |
+| 5 | `install(workdir, signal)` で中断できる | 003 の `installDependencies` は `AbortSignal` を受け取らない（`install_timeout_seconds` でだけ止まる） | 停止・期限のときは `removeStaleSandboxes({ jobId })` でインストール用のコンテナを消して戻らせる（ラベルで `factory-install-<jobId>` も選べる）。003 は変えない |
+| 6 | Worker が作業場を片付ける | `runPipelineInSandbox` が作業場を作って `finally` で壊す | Worker の片付けは保険として残す |
+
+見直しの途中で、もう1つ見つかった。
+
+- `jobs` に Issue の題と本文の列がない（001 のスキーマ）。plan の `AgentRequest` には `issueTitle`・`issueBody` があったが、積むときに捨てていた。005 は Issue と依頼の両方が空だと `failed` にする。スキーマを変えずに、Worker が準備のときに `GitHubPort.getIssue` で取ることにした（取り出した時点の最新の題と本文になる）
+
+### `install_command` を設定に出した
+
+最初の spec は依存のインストールを `pnpm install --frozen-lockfile` の決め打ちにしていた。005 で工程内テストのコマンドを `[pipeline] check_commands` として設定に出したので、インストールだけ決め打ちだと対象リポジトリに合わせる場所が2つに割れる。`[pipeline] install_command`（既定は同じ、空なら飛ばす）を足した。
+
+### AI解禁の前に本物の GitHub で Worker まで通す方法
+
+005 の本物の入口をつなぐと、quickstart 3章の「Worker を動かす」はさくらを呼ぶことになる（以前は仮の入口だったので呼ばなかった）。005 の `runPipeline` は、計画役を呼ぶ前に `[models].verifier === [models].implementer` を確かめて `failed` を返す（`src/pipeline/run.ts:206`）。確認用の設定でこの2つを同じにすれば、取得・インストール・作業場・報告までを LLM なしで通せる。
+
+### まだ分かっていないこと
+
+- `getIssue` で取った Issue の本文が、依頼のあとに編集されていた場合の扱い（今は最新を使う。依頼の時点の本文を使うべきかは、運用で困ったら決める）
+
+### 見直しのあとの analyze で直したこと
+
+- `.specify/feature.json`（gitignore 済み）が、リベースのあとも 005 を指したままだった。`check-prerequisites.sh` が 005 を返すので、`/speckit-implement` が 005 の tasks を対象にするところだった。007 に書き換えた
+- `stop()` に待ちの上限がなかった。005 の工程内テストのコマンドは最大 600 秒なので、中断にすぐ応じないと systemd の `TimeoutStopSec=20` を超える。上限を 5 秒（`stopTimeoutMs`）にした。過ぎたら状態を変えずに抜け、次の起動で `restarted` として報告する。待ちの途中で `failed` にすると、報告の投稿が間に合わなかったときに起動時の掃除の対象から外れて、報告が失われるため
+- Worker の中断の合図を停止専用にしたので、取得の期限切れの合図がなくなっていた。取得には停止と期限を合わせた合図（`AbortSignal.any`）を渡すことにした
+- 準備で止まったジョブの状態は `planning` のままなので、報告の「止まった工程」が `planning` と出て、計画役の失敗と取り違えやすい。準備で止まったときは「準備」と表示する
+
