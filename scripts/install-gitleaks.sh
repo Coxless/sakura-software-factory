@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gitleaks を固定した版で /usr/local/bin に入れる。Workshop（setup-base）・CI・VPS（setup.sh）の3か所から呼ぶ。
+# gitleaks を固定した版で /usr/local/bin に入れる。Workshop（setup-project）・CI・VPS（setup.sh）の3か所から呼ぶ。
 # 版とチェックサムを持つのはこのファイルだけ（specs/006-vps-ops/research.md R10）。
 # 同じ版が入っていれば何もしない。チェックサムが一致しなければ入れずに失敗する。
 set -euo pipefail
@@ -7,8 +7,8 @@ set -euo pipefail
 GITLEAKS_VERSION="8.30.1"
 # 公式の gitleaks_${GITLEAKS_VERSION}_checksums.txt から写す
 # （https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_checksums.txt）
-GITLEAKS_SHA256_linux_x64=""
-GITLEAKS_SHA256_linux_arm64=""
+GITLEAKS_SHA256_linux_x64="551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+GITLEAKS_SHA256_linux_arm64="e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080"
 
 INSTALL_PATH="/usr/local/bin/gitleaks"
 

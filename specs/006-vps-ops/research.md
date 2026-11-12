@@ -74,7 +74,7 @@
 ## R10. gitleaks の入れ方と使い方
 
 - **決定**:
-  - 入れ方: `scripts/install-gitleaks.sh` を Workshop の `setup-base`・CI・VPS の配備スクリプトの3か所から呼ぶ。版とアーキテクチャごと（`linux_x64`・`linux_arm64`）の SHA-256 をこのスクリプトだけに書き、一致しなければ入れずに失敗する。入っている版が同じなら何もしない
+  - 入れ方: `scripts/install-gitleaks.sh` を Workshop の `setup-project`（`setup-base` の時点では `/project` がマウントされていない）・CI・VPS の配備スクリプトの3か所から呼ぶ。版とアーキテクチャごと（`linux_x64`・`linux_arm64`）の SHA-256 をこのスクリプトだけに書き、一致しなければ入れずに失敗する。入っている版が同じなら何もしない
   - 使い方: `pnpm run secrets:scan`（`gitleaks git --redact --no-banner --config .gitleaks.toml .`）。履歴全体をスキャンする（spec の Clarifications）。CI は `actions/checkout` に `fetch-depth: 0` を付ける
   - 許可リスト: `.gitleaks.toml` で既定の規則を引き継ぎ（`[extend] useDefault = true`）、テスト用の偽の値を、ファイルと値の正規表現の組で個別に許可する。規則全体・ディレクトリ全体は除外しない（FR-032）
 - **2026-11-11 に Docker Hub の `zricethezav/gitleaks:v8.30.1` で今のリポジトリ（28 コミット）をスキャンした結果**: 4 件。すべてテスト用の偽の値

@@ -3,12 +3,3 @@ set -eu
 apt-get update
 apt-get install -y --no-install-recommends ca-certificates curl git ripgrep docker.io shellcheck
 usermod -aG docker workshop
-
-# gitleaks（006）。版とチェックサムは scripts/install-gitleaks.sh だけに持つ（CI・VPS と同じ版にする）
-# フックの実行時にプロジェクトが /project に見えている前提。見えていなければ理由を出して止まる
-if [ -f /project/scripts/install-gitleaks.sh ]; then
-  bash /project/scripts/install-gitleaks.sh
-else
-  echo "ERROR: /project/scripts/install-gitleaks.sh が見えません（setup-base の実行時に /project がマウントされていない）" >&2
-  exit 1
-fi

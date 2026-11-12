@@ -18,7 +18,7 @@
 - `deploy:rehearsal` は CI では実行しない（特権付きのコンテナと 15 分の時間が要るため）
 - `pnpm run check` は変えない（Docker なしでも通る今の形を保つ）
 
-## Workshop（`.workshop/devtools/hooks/setup-base`）の変更
+## Workshop（`.workshop/devtools/hooks/`）の変更
 
-- apt に `shellcheck` を足す
-- `bash /project/scripts/install-gitleaks.sh` を呼ぶ（プロジェクトは `/project` にマウントされる）。マウント前に実行される場合は、実装のときに `workshop refresh dev` で確かめて、スクリプトの中身を `setup-base` から読める場所に合わせる
+- `setup-base`: apt に `shellcheck` を足す
+- `setup-project`（新規）: `bash /project/scripts/install-gitleaks.sh` を呼ぶ。`setup-base` の実行時には `/project` がまだマウントされていないため、マウントのあとに動く `setup-project` で入れる。`setup-project` は `workshop` ユーザーで動くので、スクリプトは `sudo` で `/usr/local/bin` に置く

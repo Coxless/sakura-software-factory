@@ -48,7 +48,7 @@ VPS解禁の日（2026-12-03）に手順書を上から流すだけで配備で�
 | VI. 品質ゲートと自律レベルB | gitleaks を入れ、008 の自動マージ条件の前提を作る。本番デプロイの権限は持たせない（ステージングの転送先だけ用意する） | ✅ |
 | VII. シンプルさと差し替え可能性 | 新しいミドルウェアなし。Hono は constitution の主要ライブラリ。配備は bash のスクリプトと systemd だけ（Ansible などを入れない） | ✅ |
 | 技術的制約 | Hono・Caddy・systemd は constitution のとおり。pnpm は corepack。TypeBox で `[http]` を検証 | ✅ |
-| 開発ワークフロー | ツールの追加は `setup-base`（gitleaks・shellcheck）。CI とローカルで同じコマンド（`secrets:scan`・`deploy:lint`） | ✅ |
+| 開発ワークフロー | ツールの追加は Workshop のフック（shellcheck は `setup-base`、`/project` のスクリプトを呼ぶ gitleaks は `setup-project`）。CI とローカルで同じコマンド（`secrets:scan`・`deploy:lint`） | ✅ |
 
 **Post-design re-check**（Phase 1 のあと）: contracts・data-model を見直した。違反はない。`docker` グループの残るリスクは Complexity Tracking のとおり（原則 IV は NON-NEGOTIABLE なので、違反としては扱わない）。
 
@@ -78,7 +78,8 @@ specs/006-vps-ops/
 .
 ├── .github/workflows/ci.yml          # fetch-depth: 0、gitleaks を入れて secrets:scan、deploy:lint を追加
 ├── .gitleaks.toml                    # 既定の規則＋テスト用の偽の値の個別の許可
-├── .workshop/devtools/hooks/setup-base  # shellcheck を追加、scripts/install-gitleaks.sh を呼ぶ
+├── .workshop/devtools/hooks/setup-base     # shellcheck を追加
+├── .workshop/devtools/hooks/setup-project  # scripts/install-gitleaks.sh を呼ぶ（/project のマウント後に動く）
 ├── scripts/
 │   └── install-gitleaks.sh           # 版・チェックサムを持つ唯一の場所（Workshop・CI・VPS）
 ├── deploy/

@@ -30,7 +30,7 @@
 - 起動: `workshop launch dev`（初回）／`workshop start dev`。定義を変えたら `workshop refresh dev`
 - コマンドは Workshop の中で実行する: `workshop exec dev -- <command>`（プロジェクトは `/project` にマウントされる）
 - パッケージマネージャーは pnpm（corepack 経由）。npm・yarn は使わない。pnpm のバージョンは `package.json` の `packageManager` で固定する
-- ツールを追加するときは `setup-base` に書く（ホストに直接入れない）
+- ツールを追加するときは `setup-base` に書く（ホストに直接入れない）。`/project` のファイルを使うもの（`scripts/install-gitleaks.sh` など）は、マウントのあとに動く `setup-project` に書く
 
 ## 開発
 

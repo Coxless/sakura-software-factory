@@ -21,7 +21,7 @@ kill -TERM %1; wait %1; echo $?
 ## 2. 秘密情報スキャン
 
 ```bash
-gitleaks version                   # → 8.30.1（setup-base で入る）
+gitleaks version                   # → 8.30.1（setup-project で入る）
 pnpm run secrets:scan              # → 0。履歴全体で leaks なし（テスト用の偽の値は .gitleaks.toml で個別に許可）
 ```
 
