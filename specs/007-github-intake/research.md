@@ -97,7 +97,7 @@
 - **インストールの打ち切り**: 003 の `installDependencies` は `AbortSignal` を受け取らず、`[sandbox] install_timeout_seconds` でだけ止まる。停止の合図・期限が来たら、Worker は `removeSandboxes(jobId)`（003 の `removeStaleSandboxes({ jobId })`。ラベルで `factory-install-<jobId>` も選ぶ）でコンテナを消し、`installDependencies` を戻らせる。そのあとの分類は、中断の理由（停止なら `stopped`、期限なら `timeout`）を終了コードより優先する。003 は変えない
 - **作業場の片付け**: 実装工程の作業場は 005 の `runPipelineInSandbox` が `finally` で壊す。Worker の `finally` の `removeSandboxes(jobId)` は、005 の片付けの失敗とインストール用のコンテナの残りに備えた保険として残す
 - **停止の待ちの上限**: `stop()` は処理中のジョブが終わるのを最大 5 秒（`WorkerDeps.stopTimeoutMs`、既定 5000）待つ。5 秒以内に終われば、`failed`（`stopped`）にして報告してから resolve する。過ぎたら、ジョブの状態を変えずに resolve する。状態が `planning`〜`judging` のまま残るので、次の起動で `restarted` として報告される。待ちの途中で `failed` にしないのは、報告の投稿が間に合わないと、起動時の掃除の対象（`planning`〜`judging`）から外れて報告が失われるため
-- **理由**: FR-028・FR-029。停止は systemd の `TimeoutStopSec=20` に収める。内訳は、Worker の 5 秒、006 の HTTP の停止（`shutdown_timeout_seconds`、既定 10）、残りは DB を閉じる余裕。005 の工程内テストのコマンド（最大 600 秒）や LLM の呼び出しが中断にすぐ応じなくても、上限で抜ける
+- **理由**: FR-028・FR-029。停止は 006 の SC-004（既定の設定で 10 秒以内に終わる）と systemd の `TimeoutStopSec=70` に収める。内訳は、Worker の 5 秒と、006 の HTTP の停止（`shutdown_timeout_seconds`、既定 10。待ち受けの接続がなければすぐ終わる）。005 の工程内テストのコマンド（最大 600 秒）や LLM の呼び出しが中断にすぐ応じなくても、上限で抜ける
 - **`pr_opened` 以降の状態**: 008・009 で扱う。起動時の掃除では触らない
 
 ## R12. 設定と環境変数

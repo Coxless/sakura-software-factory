@@ -99,11 +99,29 @@ export const FactoryConfigSchema = Type.Object(
       },
       { ...strict, default: {} },
     ),
-    github: Type.Object({ allowed_users: Type.Array(NonEmpty, { minItems: 1 }) }, strict),
+    github: Type.Object(
+      {
+        allowed_users: Type.Array(NonEmpty, { minItems: 1 }),
+        /** Webhook の本文の上限（KB）。署名の検証の前に絞る（007） */
+        webhook_max_body_kb: Range(64, 25600, 1024),
+        /** 依頼の本文（@agent のあと）の上限。超えた分は切り詰める（007） */
+        max_instruction_chars: Range(100, 200000, 20000),
+      },
+      strict,
+    ),
+    worker: Type.Object(
+      {
+        /** キューを見る間隔。受付が積んだときは待たずに取り出す（007） */
+        poll_interval_seconds: Range(1, 300, 5),
+      },
+      { ...strict, default: {} },
+    ),
     storage: Type.Object(
       {
         database_path: Type.String({ minLength: 1, default: "data/factory.db" }),
         trace_dir: Type.String({ minLength: 1, default: "data/traces" }),
+        /** ジョブごとの作業ディレクトリの置き場所（007）。作業場から bind mount できる場所にする */
+        work_dir: Type.String({ minLength: 1, default: "data/work" }),
       },
       { ...strict, default: {} },
     ),
@@ -169,6 +187,8 @@ export const FactoryConfigSchema = Type.Object(
         max_check_log_chars: Range(1000, 100000, 8000),
         max_diff_chars: Range(1000, 400000, 40000),
         max_file_list_chars: Range(1000, 100000, 10000),
+        /** 依存のインストールのコマンド（ネットワークありの一時的な作業場で sh -c）。空なら飛ばす（007） */
+        install_command: Type.String({ default: "pnpm install --frozen-lockfile" }),
       },
       { ...strict, default: {} },
     ),
@@ -367,6 +387,7 @@ export function parseConfig(
   const config = value as Static<typeof FactoryConfigSchema>;
   config.storage.database_path = resolve(baseDir, config.storage.database_path);
   config.storage.trace_dir = resolve(baseDir, config.storage.trace_dir);
+  config.storage.work_dir = resolve(baseDir, config.storage.work_dir);
   return deepFreeze(config);
 }
 

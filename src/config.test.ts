@@ -366,6 +366,7 @@ describe("parseConfig: [pipeline]（005）", () => {
       max_check_log_chars: 8000,
       max_diff_chars: 40000,
       max_file_list_chars: 10000,
+      install_command: "pnpm install --frozen-lockfile",
     });
   });
 
@@ -408,6 +409,63 @@ describe("parseConfig: [pipeline]（005）", () => {
       issuesOf(`${MINIMAL}\n[auto_merge]\nallowed_work_types = ["bugfix", "hotfix"]\n`),
     ).toEqual([
       { path: "/auto_merge/allowed_work_types/1", message: expect.stringContaining("hotfix") },
+    ]);
+  });
+});
+
+describe("parseConfig: 受付と Worker（007）", () => {
+  test("省略すると既定値が入り、work_dir は設定ファイルの場所が基準", () => {
+    const config = parseConfig(MINIMAL, BASE_DIR);
+    expect(config.github).toEqual({
+      allowed_users: ["Coxless"],
+      webhook_max_body_kb: 1024,
+      max_instruction_chars: 20000,
+    });
+    expect(config.worker).toEqual({ poll_interval_seconds: 5 });
+    expect(config.storage.work_dir).toBe(resolve(BASE_DIR, "data/work"));
+    expect(config.pipeline.install_command).toBe("pnpm install --frozen-lockfile");
+  });
+
+  test("値を指定できる。install_command は空にできる", () => {
+    const config = parseConfig(
+      `${MINIMAL.replace('allowed_users = ["Coxless"]', 'allowed_users = ["Coxless"]\nwebhook_max_body_kb = 64\nmax_instruction_chars = 100')}
+[worker]
+poll_interval_seconds = 300
+
+[storage]
+work_dir = "/var/lib/sakura-factory/work"
+
+[pipeline]
+install_command = ""
+`,
+      BASE_DIR,
+    );
+    expect(config.github.webhook_max_body_kb).toBe(64);
+    expect(config.github.max_instruction_chars).toBe(100);
+    expect(config.worker.poll_interval_seconds).toBe(300);
+    expect(config.storage.work_dir).toBe("/var/lib/sakura-factory/work");
+    expect(config.pipeline.install_command).toBe("");
+  });
+
+  test.each([
+    ["github", "webhook_max_body_kb = 63", "/github/webhook_max_body_kb", "64 以上"],
+    ["github", "webhook_max_body_kb = 25601", "/github/webhook_max_body_kb", "25600 以下"],
+    ["github", "max_instruction_chars = 99", "/github/max_instruction_chars", "100 以上"],
+    ["github", "max_instruction_chars = 200001", "/github/max_instruction_chars", "200000 以下"],
+    ["worker", "poll_interval_seconds = 0", "/worker/poll_interval_seconds", "1 以上"],
+    ["worker", "poll_interval_seconds = 301", "/worker/poll_interval_seconds", "300 以下"],
+    ["storage", 'work_dir = ""', "/storage/work_dir", "1 文字以上"],
+  ])("[%s] %s はエラー", (section, line, path, message) => {
+    const toml =
+      section === "github"
+        ? MINIMAL.replace('allowed_users = ["Coxless"]', `allowed_users = ["Coxless"]\n${line}`)
+        : `${MINIMAL}\n[${section}]\n${line}\n`;
+    expect(issuesOf(toml)).toEqual([{ path, message: expect.stringContaining(message) }]);
+  });
+
+  test("未知の項目はエラー", () => {
+    expect(issuesOf(`${MINIMAL}\n[worker]\nconcurrency = 2\n`)).toEqual([
+      { path: "/worker/concurrency", message: expect.stringContaining("未知") },
     ]);
   });
 });

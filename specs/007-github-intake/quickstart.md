@@ -16,17 +16,24 @@ pnpm run check
 
 ## 2. 署名付きの要求を手で送る（ローカル）
 
+偽の秘密鍵はリポジトリに置かず、一時ディレクトリに作る。記録したペイロードの依頼者（`octo-requester`）は `factory.toml` の許可ユーザーにいないので、権限の確認まで進めるには依頼者を `Coxless` に書き換える。
+
 ```bash
-export GITHUB_WEBHOOK_SECRET=local-test-secret GITHUB_APP_ID=1 GITHUB_APP_PRIVATE_KEY_PATH=src/github/fixtures/dummy-key.pem
-export SAKURA_AI_API_KEY=dummy   # 起動時の確認だけを通す。この章ではジョブが積まれないので LLM は呼ばない
+tmp=$(mktemp -d)
+printf '%s\n' '-----BEGIN RSA PRIVATE KEY-----' 'quickstart-dummy' '-----END RSA PRIVATE KEY-----' >"$tmp/dummy-key.pem"
+sed -e "s#^database_path = .*#database_path = \"$tmp/factory.db\"#" -e "s#^trace_dir = .*#trace_dir = \"$tmp/traces\"#" \
+  -e "s#^work_dir = .*#work_dir = \"$tmp/work\"#" factory.toml >"$tmp/factory.toml"
+export FACTORY_CONFIG="$tmp/factory.toml" GITHUB_WEBHOOK_SECRET=local-test-secret GITHUB_APP_ID=1 \
+  GITHUB_APP_PRIVATE_KEY_PATH="$tmp/dummy-key.pem" SAKURA_AI_API_KEY=dummy   # 起動時の確認だけを通す。LLM は呼ばない
 pnpm start &
-body=$(cat src/github/fixtures/issue_comment.created.agent.json)
+body=$(python3 -c 'import json,sys; p=json.load(open("src/github/fixtures/issue_comment.created.agent.json")); p["comment"]["user"]["login"]="Coxless"; sys.stdout.write(json.dumps(p, ensure_ascii=False))')
 sig="sha256=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$GITHUB_WEBHOOK_SECRET" -hex | sed 's/^.* //')"
 curl -s -X POST http://127.0.0.1:8787/webhook -H "X-GitHub-Event: issue_comment" \
   -H "X-GitHub-Delivery: local-1" -H "X-Hub-Signature-256: $sig" --data-binary "$body"
-# → 権限の確認で GitHub に届かないので 500（偽の App ID のため）。署名なしで送ると 401
+# → {"error":"internal_error"}（500）。偽の秘密鍵で App の JWT を作れないため。GitHub には届かない
 curl -s -X POST http://127.0.0.1:8787/webhook -H "X-GitHub-Event: issue_comment" --data-binary "$body"
-# → {"error":"invalid_signature"}
+# → {"error":"invalid_signature"}（401）
+kill -TERM %1   # 終了コード 0 で止まる
 ```
 
 ## 3. テスト用のリポジトリで本物の GitHub を確かめる（M2、手で1回）

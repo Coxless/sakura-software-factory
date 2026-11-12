@@ -10,13 +10,14 @@
 
 ## 1. 事前の確認
 
-| 確認すること                 | 確かめ方                                                                    | 期待する結果                                       |
-| ---------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------- |
-| OS                           | `lsb_release -ds`                                                           | `Ubuntu 24.04.x LTS`                               |
-| SSH の鍵でログインできる     | 手元から `ssh <user>@<VPS の IP>`                                           | パスワードを聞かれずに入れる                       |
-| DNS が VPS を向いている      | 手元から `dig +short factory.example.jp` と `dig +short staging.example.jp` | どちらも VPS の IP                                 |
-| さくらのパケットフィルター   | コントロールパネルの「パケットフィルター」                                  | 22・80・443（TCP）だけを許可                       |
-| さくらのAI Engine の APIキー | コントロールパネル                                                          | 手元に控えてある（チャットやリポジトリに貼らない） |
+| 確認すること                 | 確かめ方                                                                    | 期待する結果                                                  |
+| ---------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| OS                           | `lsb_release -ds`                                                           | `Ubuntu 24.04.x LTS`                                          |
+| SSH の鍵でログインできる     | 手元から `ssh <user>@<VPS の IP>`                                           | パスワードを聞かれずに入れる                                  |
+| DNS が VPS を向いている      | 手元から `dig +short factory.example.jp` と `dig +short staging.example.jp` | どちらも VPS の IP                                            |
+| さくらのパケットフィルター   | コントロールパネルの「パケットフィルター」                                  | 22・80・443（TCP）だけを許可                                  |
+| さくらのAI Engine の APIキー | コントロールパネル                                                          | 手元に控えてある（チャットやリポジトリに貼らない）            |
+| GitHub App                   | 3章の「GitHub App を作る」                                                  | App の ID・秘密鍵（.pem）・Webhook のシークレットが手元にある |
 
 DNS が VPS を向いていないと、Caddy の証明書の取得が失敗する（7章）。
 
@@ -39,8 +40,32 @@ ERROR: 設定と秘密情報 で失敗しました: /etc/sakura-factory/factory.
 
 ## 3. 秘密情報とドメインを書く
 
+### GitHub App を作る（初回だけ。007）
+
+GitHub の Settings → Developer settings → GitHub Apps → New GitHub App で作る。仕様: `specs/007-github-intake/contracts/github-app.md`
+
+| 項目                                    | 値                                                                                                                                                                    |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Webhook URL                             | `https://factory.example.jp/webhook`                                                                                                                                  |
+| Webhook secret                          | `openssl rand -hex 32` の出力（`GITHUB_WEBHOOK_SECRET` と同じ値）                                                                                                     |
+| Repository permissions                  | Issues: Read and write、Pull requests: Read and write、Contents: Read and write、Checks: Read-only、Actions: Read-only、Metadata: Read-only。**Workflows は与えない** |
+| Subscribe to events                     | Issue comment、Check suite、Pull request、Push                                                                                                                        |
+| Where can this GitHub App be installed? | Only on this account                                                                                                                                                  |
+
+作ったら、App の ID を控え、「Generate a private key」で秘密鍵（.pem）を作り、対象のリポジトリに App を入れる（Install App）。秘密鍵は VPS にだけ置く:
+
 ```bash
-sudoedit /etc/sakura-factory/factory.env   # SAKURA_AI_API_KEY=...
+# 手元から（.pem はチャットやリポジトリに置かない）
+scp ./factory-app.private-key.pem <user>@<VPS の IP>:/tmp/github-app.pem
+# VPS で
+sudo install -o root -g factory -m 0640 /tmp/github-app.pem /etc/sakura-factory/github-app.pem
+shred -u /tmp/github-app.pem
+```
+
+### 秘密情報を書く
+
+```bash
+sudoedit /etc/sakura-factory/factory.env   # SAKURA_AI_API_KEY・GITHUB_APP_ID・GITHUB_APP_PRIVATE_KEY_PATH・GITHUB_WEBHOOK_SECRET
 sudo /opt/sakura-factory/app/deploy/scripts/setup.sh   # 今度は caddy.env のひな形を置いて止まる
 sudoedit /etc/caddy/caddy.env              # FACTORY_DOMAIN・STAGING_DOMAIN・CADDY_TLS（メールアドレス）
 ```
@@ -48,13 +73,14 @@ sudoedit /etc/caddy/caddy.env              # FACTORY_DOMAIN・STAGING_DOMAIN・C
 確かめ方:
 
 ```bash
-sudo stat -c '%U:%G %a %n' /etc/sakura-factory/factory.env /etc/caddy/caddy.env
+sudo stat -c '%U:%G %a %n' /etc/sakura-factory/factory.env /etc/sakura-factory/github-app.pem /etc/caddy/caddy.env
 ```
 
 期待する出力:
 
 ```
 root:factory 640 /etc/sakura-factory/factory.env
+root:factory 640 /etc/sakura-factory/github-app.pem
 root:caddy 640 /etc/caddy/caddy.env
 ```
 
@@ -106,13 +132,15 @@ sudo /opt/sakura-factory/app/deploy/scripts/update.sh v0.2.0     # タグかコ�
 diff /opt/sakura-factory/app/factory.toml /etc/sakura-factory/factory.toml
 ```
 
-（`[storage]` の2行だけが違うのが正しい状態）
+（`[storage]` の3行〔`database_path`・`trace_dir`・`work_dir`〕だけが違うのが正しい状態）
 
 ## 7. 困ったとき
 
-| 症状                         | 確かめ方                                                                 | 対処                                                                                                                      |
-| ---------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| HTTPS がつながらない         | `journalctl -u caddy -n 50 --no-pager` に `obtaining certificate` の失敗 | DNS（1章）とパケットフィルターの 80・443 を確かめ、`sudo systemctl restart caddy`                                         |
-| `factory` が止まったまま     | `systemctl status factory` に `start request repeated too quickly`       | `journalctl -u factory -n 100 -o cat` で原因を直し、`sudo systemctl reset-failed factory && sudo systemctl start factory` |
-| 更新した版で動かない         | `update.sh` が「生存確認」で失敗                                         | 前の版に戻す: `sudo /opt/sakura-factory/app/deploy/scripts/update.sh <前のコミット>`                                      |
-| setup.sh が SSH の鍵で止まる | `authorized_keys` に鍵がない                                             | 鍵でログインできるようにしてから流し直す（締め出しを防ぐため、鍵がないとパスワードでのログインを止めない）                |
+| 症状                         | 確かめ方                                                                                           | 対処                                                                                                                                                                            |
+| ---------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| HTTPS がつながらない         | `journalctl -u caddy -n 50 --no-pager` に `obtaining certificate` の失敗                           | DNS（1章）とパケットフィルターの 80・443 を確かめ、`sudo systemctl restart caddy`                                                                                               |
+| `factory` が止まったまま     | `systemctl status factory` に `start request repeated too quickly`                                 | `journalctl -u factory -n 100 -o cat` で原因を直し、`sudo systemctl reset-failed factory && sudo systemctl start factory`                                                       |
+| 更新した版で動かない         | `update.sh` が「生存確認」で失敗                                                                   | 前の版に戻す: `sudo /opt/sakura-factory/app/deploy/scripts/update.sh <前のコミット>`                                                                                            |
+| setup.sh が SSH の鍵で止まる | `authorized_keys` に鍵がない                                                                       | 鍵でログインできるようにしてから流し直す（締め出しを防ぐため、鍵がないとパスワードでのログインを止めない）                                                                      |
+| `@agent` に反応しない        | `journalctl -u factory -o cat \| grep webhook` に `"result":"ignored"` と `reason`                 | `not_allowed` なら `factory.toml` の `[github] allowed_users`、`permission` ならリポジトリの権限（書き込み以上）を確かめる                                                      |
+| Webhook が `500` を返した    | `journalctl -u factory -o cat \| grep -E '権限を確かめられません\|ジョブを積めません'` に配送の ID | 原因（App が入っていない・GitHub の障害など）を直してから、GitHub の App の設定 → Advanced → Recent Deliveries で、その配送の「Redeliver」を押す（GitHub は自動では再送しない） |

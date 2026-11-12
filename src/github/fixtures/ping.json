@@ -1,0 +1,21 @@
+{
+  "zen": "Keep it logically awesome.",
+  "hook_id": 9009,
+  "hook": {
+    "type": "App",
+    "id": 9009,
+    "name": "web",
+    "active": true,
+    "events": ["issue_comment"],
+    "config": {
+      "content_type": "json",
+      "insecure_ssl": "0",
+      "url": "https://factory.example.com/webhook"
+    }
+  },
+  "sender": {
+    "login": "octo-org",
+    "id": 4004,
+    "type": "Organization"
+  }
+}

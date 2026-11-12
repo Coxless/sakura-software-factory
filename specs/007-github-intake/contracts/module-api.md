@@ -75,6 +75,8 @@ interface WorkerDeps {
   jobTimeoutMs?: number;
   /** stop() が処理中のジョブを待つ上限。既定 5000。過ぎたら状態を変えずに resolve（research R11） */
   stopTimeoutMs?: number;
+  /** 取得元。既定は https://github.com。テストでは file:// の bare リポジトリ */
+  cloneBaseUrl?: string;
 }
 
 interface Worker {
@@ -96,10 +98,35 @@ function failJob(deps: WorkerDeps, job: Job, kind: FailureKind, message: string,
 ## `src/queue/jobs.ts`（足すもの）
 
 ```ts
-/** 積む。(repo, trigger_comment_id) が既にあれば積まずに既存のジョブを返す */
-function enqueueJob(db: Db, request: NewJobInput, now: number): { job: Job; created: boolean };
+/**
+ * 積む。(repo, trigger_comment_id) が既にあれば積まずに既存のジョブを返す。
+ * note を渡すと、新しく積んだときだけ job_events の note（受付の記録）を同じトランザクションで書く
+ */
+function enqueueJob(db: Db, request: NewJobInput, now: number, note?: object): { job: Job; created: boolean };
 /** その月の受付を止めた時刻を記録する（既に記録があれば何もしない） */
 function markIntakeStopped(db: Db, config: FactoryConfig, now: number): void;
 /** 起動時の掃除の対象（planning〜judging） */
 function listInterruptedJobs(db: Db): Job[];
 ```
+
+## `src/main.ts`
+
+```ts
+/** 受付と Worker が使う外の世界。本物は createServices（octokit・runPipelineInSandbox・installDependencies） */
+interface FactoryServices {
+  github: GitHubPort;
+  webhookSecret: string;
+  pipeline: PipelinePort;
+  install: WorkerDeps["install"];
+  removeSandboxes: WorkerDeps["removeSandboxes"];
+  cloneBaseUrl?: string;
+}
+
+/**
+ * makeServices を渡すと、起動時の掃除 → Worker の開始 → /webhook 付きの待ち受けの順に始める。
+ * 005 の入口は開いた DB を使うので、DB を受け取って依存を返す関数で渡す。省くと HTTP（/healthz）だけ（006 のテスト）。
+ * stop() は Worker → HTTP → 応答のあとの処理 → DB の順に止める
+ */
+function startFactory(config: FactoryConfig, logger: Logger, makeServices?: (db: Db) => FactoryServices): Promise<RunningFactory>;
+```
+

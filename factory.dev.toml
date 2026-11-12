@@ -48,10 +48,16 @@ allowed_work_types = ["bugfix", "test", "docs", "refactor"]   # 自動マージ�
 
 [github]
 allowed_users = ["Coxless"]   # @agent を実行できるユーザー（書き込み権限の確認に加えて絞る）
+webhook_max_body_kb = 1024     # Webhook の本文の上限（64〜25600）。項目の説明: specs/007-github-intake/contracts/factory-toml.md
+max_instruction_chars = 20000  # 依頼の本文（@agent のあと）の上限（100〜200000）
+
+[worker]
+poll_interval_seconds = 5   # キューを見る間隔（1〜300）。受付が積んだときは待たずに取り出す
 
 [storage]
 database_path = "data/factory.dev.db"   # 相対パスはこのファイルのディレクトリが基準
 trace_dir = "data/traces-dev"
+work_dir = "data/work-dev"   # ジョブごとの作業ディレクトリ（作業場から bind mount する）
 
 [log]
 level = "info"   # trace / debug / info / warn / error / fatal
@@ -109,3 +115,6 @@ max_check_feedbacks = 3       # 1回の実装工程で、テストの失敗を�
 max_check_log_chars = 8000    # 差し込み・判定に渡すテストのログの上限（先頭と末尾を残す）
 max_diff_chars = 40000        # 検査役・やり直しに渡す diff の上限
 max_file_list_chars = 10000   # 計画役に渡すファイル一覧の上限
+# 依存のインストールのコマンド（ネットワークありの一時的な作業場で sh -c で1回実行。007）
+# 対象リポジトリの CI と同じにする。空にするとインストールを飛ばす
+install_command = "pnpm install --frozen-lockfile"
