@@ -10,6 +10,7 @@ import {
   LLM_ERROR_KINDS,
   llmCalls,
   type NewJob,
+  type VERDICTS,
 } from "./schema.ts";
 import { migratedMemoryDb } from "./testing.ts";
 
@@ -214,6 +215,30 @@ describe("schema", () => {
     expect(() => run(0)).toThrow(/CHECK/);
     expect(() => run(1)).toThrow(/UNIQUE/);
     expect(() => run(1, null, "judge")).not.toThrow();
+    close();
+  });
+
+  test("agent_runs.verdict: NULL と pass・fail だけ（005）", () => {
+    const { db, close } = migratedMemoryDb();
+    const [inserted] = db.insert(jobs).values(job()).returning().all();
+    const jobId = inserted?.id as number;
+    const run = (attempt: number, verdict: string | null) =>
+      db
+        .insert(agentRuns)
+        .values({
+          job_id: jobId,
+          phase: "judge",
+          attempt,
+          model: "Qwen3.6",
+          verdict: verdict as (typeof VERDICTS)[number] | null,
+          trace_path: `job-${jobId}.jsonl`,
+          started_at: 1,
+        })
+        .run();
+    expect(() => run(1, null)).not.toThrow();
+    expect(() => run(2, "pass")).not.toThrow();
+    expect(() => run(3, "fail")).not.toThrow();
+    expect(() => run(4, "maybe")).toThrow(/CHECK/);
     close();
   });
 });

@@ -50,6 +50,9 @@ export const AGENT_RUN_OUTCOMES = [
   "failed",
 ] as const;
 export type AgentRunOutcome = (typeof AGENT_RUN_OUTCOMES)[number];
+/** 判定（phase = judge）の合否（005 data-model.md 1章） */
+export const VERDICTS = ["pass", "fail"] as const;
+export type VerdictValue = (typeof VERDICTS)[number];
 
 /** `column IN ('a', 'b', ...)` の CHECK 用。値はこのファイルの定数だけなので埋め込んでよい */
 function oneOf(column: AnySQLiteColumn, values: readonly string[]): SQL {
@@ -144,7 +147,7 @@ export const llmCalls = sqliteTable(
 );
 
 /**
- * ツールを使う工程（実装など）の実行1回ごとの要約（constitution 原則 V）。
+ * 工程の実行1回ごとの要約（constitution 原則 V）。実装（ツールを使う）と、005 の計画・判定（ツールなしの1回呼び出し）。
  * 詳細は軌跡の JSONL（trace_path）に置く。004 data-model.md 1章
  */
 export const agentRuns = sqliteTable(
@@ -170,6 +173,8 @@ export const agentRuns = sqliteTable(
     steers: integer("steers").notNull().default(0),
     /** 失敗の原因（マスク済み） */
     error: text("error"),
+    /** 判定の合否。判定以外の工程と、判定できなかった回は NULL（005） */
+    verdict: text("verdict", { enum: VERDICTS }),
     /** 軌跡のファイル（storage.trace_dir からの相対パス） */
     trace_path: text("trace_path").notNull(),
     started_at: integer("started_at").notNull(),
@@ -179,6 +184,7 @@ export const agentRuns = sqliteTable(
     unique("agent_runs_job_phase_attempt_unique").on(t.job_id, t.phase, t.attempt),
     check("agent_runs_outcome_check", oneOf(t.outcome, AGENT_RUN_OUTCOMES)),
     check("agent_runs_attempt_check", sql`${t.attempt} >= 1`),
+    check("agent_runs_verdict_check", oneOf(t.verdict, VERDICTS)),
   ],
 );
 

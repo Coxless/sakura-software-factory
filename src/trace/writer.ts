@@ -57,8 +57,58 @@ export type TraceRecordBody =
       lastMessage: string;
       truncatedOutput: boolean;
       error?: string;
+      /** 判定の合否（005） */
+      verdict?: string;
     }
-  | { type: "note"; message: string };
+  | { type: "note"; message: string }
+  // 005: ツールなしの1回呼び出し（run は agent_runs.id、phase は plan / judge）
+  | {
+      type: "llm_request";
+      model: string;
+      systemPrompt: string;
+      /** この呼び出しで増えたメッセージ（1回目は user 1件、再要求では前回の出力と再要求の文） */
+      messages: { role: "user" | "assistant"; text: string }[];
+      /** 切り詰めた部分の名前 */
+      truncated: string[];
+    }
+  | { type: "validation"; ok: boolean; extracted: boolean; errors: string[] }
+  // 005: 工程全体（run = 0、phase = "pipeline"）
+  | {
+      type: "pipeline_start";
+      deadline: number;
+      judgeRetries: number;
+      checkCommands: string[];
+      maxCheckFeedbacks: number;
+      planGiven: boolean;
+      baseCommit: string;
+    }
+  | { type: "phase"; name: string; round: number }
+  | {
+      type: "check_run";
+      round: number;
+      index: number;
+      results: {
+        command: string;
+        exitCode: number;
+        durationMs: number;
+        timedOut: boolean;
+        outputChars: number;
+        output: string;
+      }[];
+      passed: boolean;
+      fedBack: boolean;
+    }
+  | {
+      type: "round_end";
+      round: number;
+      implementOutcome: string;
+      checks: string;
+      diffStat: { files: number; insertions: number; deletions: number };
+      verdict: string;
+      reason?: string;
+      next: "retry" | "finish";
+    }
+  | { type: "pipeline_end"; outcome: string; rounds: number; requests: number; error?: string };
 
 export type TraceRecordType = TraceRecordBody["type"];
 

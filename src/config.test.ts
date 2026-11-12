@@ -9,6 +9,7 @@ import {
   loadConfig,
   parseConfig,
   requireEnv,
+  WORK_TYPES,
 } from "./config.ts";
 
 const MINIMAL = `
@@ -351,6 +352,62 @@ describe("parseConfig: [implementer]（004）", () => {
   test("未知の項目はエラー", () => {
     expect(issuesOf(`${MINIMAL}\n[implementer]\nmax_turns = 10\n`)).toEqual([
       { path: "/implementer/max_turns", message: expect.stringContaining("未知") },
+    ]);
+  });
+});
+
+describe("parseConfig: [pipeline]（005）", () => {
+  test("省略すると既定値が入る", () => {
+    const config = parseConfig(MINIMAL, BASE_DIR);
+    expect(config.pipeline).toEqual({
+      check_commands: ["pnpm run check"],
+      check_timeout_seconds: 600,
+      max_check_feedbacks: 3,
+      max_check_log_chars: 8000,
+      max_diff_chars: 40000,
+      max_file_list_chars: 10000,
+    });
+  });
+
+  test("コマンドの一覧は空にできる", () => {
+    const config = parseConfig(`${MINIMAL}\n[pipeline]\ncheck_commands = []\n`, BASE_DIR);
+    expect(config.pipeline.check_commands).toEqual([]);
+  });
+
+  test.each([
+    ["check_timeout_seconds = 9", "/pipeline/check_timeout_seconds", "10 以上"],
+    ["check_timeout_seconds = 3601", "/pipeline/check_timeout_seconds", "3600 以下"],
+    ["max_check_feedbacks = -1", "/pipeline/max_check_feedbacks", "0 以上"],
+    ["max_check_feedbacks = 11", "/pipeline/max_check_feedbacks", "10 以下"],
+    ["max_check_log_chars = 999", "/pipeline/max_check_log_chars", "1000 以上"],
+    ["max_check_log_chars = 100001", "/pipeline/max_check_log_chars", "100000 以下"],
+    ["max_diff_chars = 999", "/pipeline/max_diff_chars", "1000 以上"],
+    ["max_diff_chars = 400001", "/pipeline/max_diff_chars", "400000 以下"],
+    ["max_file_list_chars = 999", "/pipeline/max_file_list_chars", "1000 以上"],
+    ["max_file_list_chars = 100001", "/pipeline/max_file_list_chars", "100000 以下"],
+    ['check_commands = [""]', "/pipeline/check_commands/0", "1 文字以上"],
+  ])("範囲外はエラー: %s", (line, path, message) => {
+    expect(issuesOf(`${MINIMAL}\n[pipeline]\n${line}\n`)).toEqual([
+      { path, message: expect.stringContaining(message) },
+    ]);
+  });
+
+  test("未知の項目はエラー", () => {
+    expect(issuesOf(`${MINIMAL}\n[pipeline]\nretries = 1\n`)).toEqual([
+      { path: "/pipeline/retries", message: expect.stringContaining("未知") },
+    ]);
+  });
+
+  test("allowed_work_types は作業の種類の一覧の値だけ", () => {
+    expect(WORK_TYPES).toEqual(["bugfix", "test", "docs", "refactor", "feature", "chore"]);
+    expect(
+      parseConfig(`${MINIMAL}\n[auto_merge]\nallowed_work_types = ["feature", "chore"]\n`, BASE_DIR)
+        .auto_merge.allowed_work_types,
+    ).toEqual(["feature", "chore"]);
+    expect(
+      issuesOf(`${MINIMAL}\n[auto_merge]\nallowed_work_types = ["bugfix", "hotfix"]\n`),
+    ).toEqual([
+      { path: "/auto_merge/allowed_work_types/1", message: expect.stringContaining("hotfix") },
     ]);
   });
 });

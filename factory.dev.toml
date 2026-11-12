@@ -1,5 +1,6 @@
 # 開発用の設定（Google AI Studio の無償枠で動作確認する）。
 # 使い方: FACTORY_CONFIG=factory.dev.toml GEMINI_API_KEY=... pnpm run smoke:llm
+#         FACTORY_CONFIG=factory.dev.toml GEMINI_API_KEY=... pnpm run pipeline:dev -- --repo <path> --issue <file>
 # - constitution 原則 I の例外。常駐するファクトリー（pnpm start）はこの設定では起動しない
 # - 無償枠の入出力は Google の学習と人のレビューに使われる。公開してよいデータ（本リポジトリ・テスト用のデータ・
 #   公開のデモ用リポジトリ）だけを送る。非公開のリポジトリのコードや秘密情報は送らない
@@ -96,3 +97,15 @@ max_agents_md_chars = 20000  # AGENTS.md を入力に入れるときの上限（
 max_issue_chars = 20000      # Issue 文の上限
 max_plan_chars = 20000       # 計画の上限
 max_feedback_chars = 30000   # 追加のフィードバック（合計）の上限
+
+[pipeline]
+# 計画から判定までの工程。項目の説明: specs/005-local-pipeline/contracts/factory-toml.md
+# 既定の値は仮の値。012 の回帰評価と AI解禁後の実機の調整で直す
+# 工程内テストのコマンド（作業場の中で sh -c で順に実行。最初に失敗したところで止める）
+# 対象リポジトリの CI と同じコマンドにする。空にすると工程内テストを飛ばす
+check_commands = ["pnpm run check"]
+check_timeout_seconds = 600   # 1コマンドの時間の上限（10〜3600）。ジョブの期限が先に来ればそちら
+max_check_feedbacks = 3       # 1回の実装工程で、テストの失敗を実装役に差し込む回数の上限（0〜10）
+max_check_log_chars = 8000    # 差し込み・判定に渡すテストのログの上限（先頭と末尾を残す）
+max_diff_chars = 40000        # 検査役・やり直しに渡す diff の上限
+max_file_list_chars = 10000   # 計画役に渡すファイル一覧の上限

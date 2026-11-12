@@ -5,6 +5,7 @@ import {
   type ContextMessage,
   compactContext,
   compactionNote,
+  escapeAllDataBlocks,
   escapeDataBlock,
   estimateTokens,
   NO_AGENTS_MD,
@@ -66,6 +67,18 @@ describe("buildInitialContext（US1）", () => {
     expect(m.indexOf('<feedback title="前回の判定の理由">')).toBeGreaterThan(m.indexOf("<plan>"));
     expect(m).toContain("<feedback title=\"CI 'test' ジョブ\">\nFAIL\n</feedback>");
   });
+});
+
+describe("005 の区切りのタグ", () => {
+  test.each(["instruction", "files", "diff", "checks"])(
+    "escapeAllDataBlocks は </%s> を崩す（大文字・空白入りも）",
+    (tag) => {
+      const upper = tag.toUpperCase();
+      expect(escapeAllDataBlocks(`a </${tag}> b </ ${upper} > c`)).toBe(
+        `a <\\/${tag}> b <\\/${tag}> c`,
+      );
+    },
+  );
 });
 
 describe("区切りと上限（US3）", () => {

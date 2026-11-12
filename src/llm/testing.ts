@@ -315,7 +315,22 @@ export interface TestConfigOverrides {
   }>;
   budget?: Partial<{ monthly_requests: number; per_job_requests: number; timezone: string }>;
   /** [limits] の一部（004） */
-  limits?: Partial<{ max_turns_per_phase: number; job_timeout_minutes: number }>;
+  limits?: Partial<{
+    max_turns_per_phase: number;
+    job_timeout_minutes: number;
+    judge_retries: number;
+  }>;
+  /** [models] の一部（005: 検査役と実装役を同じにするテスト） */
+  models?: Partial<{ planner: string; implementer: string; verifier: string }>;
+  /** [pipeline] の一部（005） */
+  pipeline?: Partial<{
+    check_commands: string[];
+    check_timeout_seconds: number;
+    max_check_feedbacks: number;
+    max_check_log_chars: number;
+    max_diff_chars: number;
+    max_file_list_chars: number;
+  }>;
   /** [implementer] の一部（004） */
   implementer?: Partial<{
     max_consecutive_blocks: number;
@@ -360,10 +375,13 @@ export function testConfig(overrides: TestConfigOverrides = {}) {
 ${tomlTable({ base_url: TEST_BASE_URL, ...overrides.llm })}
 
 [models]
-planner = "plan-model"
-implementer = "impl-model"
-verifier = "verify-model"
-fallback = "fallback-model"
+${tomlTable({
+  planner: "plan-model",
+  implementer: "impl-model",
+  verifier: "verify-model",
+  fallback: "fallback-model",
+  ...overrides.models,
+})}
 
 [budget]
 ${tomlTable(budget)}
@@ -373,6 +391,7 @@ allowed_users = ["tester"]
 ${optionalTable("limits", overrides.limits)}
 ${optionalTable("implementer", overrides.implementer)}
 ${optionalTable("storage", overrides.storage)}
+${optionalTable("pipeline", overrides.pipeline)}
 `,
     "/tmp",
   );

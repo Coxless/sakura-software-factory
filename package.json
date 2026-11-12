@@ -25,7 +25,7 @@
     "db:migrate": "node src/migrate.ts",
     "sandbox:build": "docker build -t factory-sandbox:latest sandbox",
     "smoke:llm": "node src/smoke-llm.ts",
-    "implement:dev": "node src/implement-dev.ts",
+    "pipeline:dev": "node src/pipeline-dev.ts",
     "secrets:scan": "gitleaks git --redact --no-banner --config .gitleaks.toml .",
     "deploy:lint": "bash deploy/scripts/lint.sh",
     "deploy:rehearsal": "bash deploy/rehearsal/run.sh"

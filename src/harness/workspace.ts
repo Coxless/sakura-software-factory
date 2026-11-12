@@ -20,7 +20,28 @@ export interface Workspace {
   transform: ResultTransform;
   /** 作業ディレクトリ直下の AGENTS.md。ない・外を指す・読めないなら undefined（FR-014） */
   readAgentsMd(): Promise<string | undefined>;
+  /**
+   * 作業場の中で sh -c を実行する（005 の工程内テスト用。検査・整形は通さない）。
+   * 作業場が使えないときは例外を投げる
+   */
+  exec(command: string, options: WorkspaceExecOptions): Promise<WorkspaceExecResult>;
 }
+
+export interface WorkspaceExecOptions {
+  timeoutMs: number;
+  signal?: AbortSignal;
+}
+
+export interface WorkspaceExecResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+  durationMs: number;
+}
+
+/** 作業場の中の timeout が効かなかったときの、ホスト側の猶予（秒） */
+const EXEC_HOST_GRACE_SECONDS = 10;
 
 /** AGENTS.md を読むときのバイト数の上限（入力に入れるときは [implementer].max_agents_md_chars で切る） */
 const AGENTS_MD_MAX_BYTES = 1024 * 1024;
@@ -65,6 +86,27 @@ export function workspaceFromSandbox(sandbox: Sandbox, config: FactoryConfig): W
       } catch {
         return undefined;
       }
+    },
+    async exec(command, options) {
+      const seconds = Math.max(1, Math.ceil(options.timeoutMs / 1000));
+      const result = await sandbox.exec(
+        ["timeout", "--kill-after=5", String(seconds), "sh", "-c", command],
+        {
+          timeoutSeconds: seconds + EXEC_HOST_GRACE_SECONDS,
+          ...(options.signal ? { signal: options.signal } : {}),
+        },
+      );
+      const timedOut =
+        result.timedOut ||
+        result.exitCode === 124 ||
+        (result.exitCode === 137 && result.durationMs >= seconds * 1000);
+      return {
+        exitCode: result.exitCode,
+        stdout: decode(result.stdout),
+        stderr: decode(result.stderr),
+        timedOut,
+        durationMs: result.durationMs,
+      };
     },
   };
 }
