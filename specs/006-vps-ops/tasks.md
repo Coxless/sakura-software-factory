@@ -71,11 +71,11 @@ description: "Task list for 006 vps-ops"
 
 （US1 と独立しているので、Phase 3 と並行してよい）
 
-- [ ] T013 [P] [US4] `scripts/install-gitleaks.sh` を作る（research R10）: `GITLEAKS_VERSION=8.30.1` と `linux_x64`・`linux_arm64` の SHA-256 を定数に持つ。`uname -m`（`x86_64`→`x64`、`aarch64`→`arm64`、それ以外は失敗）で選び、`/usr/local/bin/gitleaks version` が同じ版なら何もせず 0。違えば `https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_${ARCH}.tar.gz` を一時ディレクトリに取り、`sha256sum -c` で確かめて、一致しなければ消して失敗する。一致したら `install -m 0755` で `/usr/local/bin/gitleaks` に置く（root でなければ `sudo`）。SHA-256 は Workshop で公式の `gitleaks_8.30.1_checksums.txt` から写す（このクラウドの作業環境からは github.com に届かないため） （**残り**: SHA-256 が空。クラウドの作業環境から github.com のリリースに届かないため、Workshop で写す。スクリプトは空なら止まる）
+- [X] T013 [P] [US4] `scripts/install-gitleaks.sh` を作る（research R10）: `GITLEAKS_VERSION=8.30.1` と `linux_x64`・`linux_arm64` の SHA-256 を定数に持つ。`uname -m`（`x86_64`→`x64`、`aarch64`→`arm64`、それ以外は失敗）で選び、`/usr/local/bin/gitleaks version` が同じ版なら何もせず 0。違えば `https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_${ARCH}.tar.gz` を一時ディレクトリに取り、`sha256sum -c` で確かめて、一致しなければ消して失敗する。一致したら `install -m 0755` で `/usr/local/bin/gitleaks` に置く（root でなければ `sudo`）。SHA-256 は Workshop で公式の `gitleaks_8.30.1_checksums.txt` から写す（このクラウドの作業環境からは github.com に届かないため）
 - [X] T014 [P] [US4] `.gitleaks.toml` を作る: `[extend] useDefault = true`。research R10 の4件を、1件ずつ `[[allowlists]]` に `description`（なぜ偽の値か）・`paths`（そのファイル1つの正規表現）・`regexes`（その偽の値だけに当たる正規表現）・`condition = "AND"` で書く（data-model.md の GitleaksAllowlist）。規則全体やディレクトリ全体を除外しない
-- [ ] T015 [US4] `.workshop/devtools/hooks/setup-base` の apt に `shellcheck` を足し、`scripts/install-gitleaks.sh` を呼ぶ。`workshop refresh dev` で、フックの実行時に `/project` が見えるかを確かめ、見えなければスクリプトの内容を読める場所（フックの隣への複製は避け、`workshop` の仕組みで渡せる方法）を調べて合わせる。結果を journal に書く （**残り**: setup-base は書いた。Workshop の `workshop refresh dev` での確認が残る）
+- [X] T015 [US4] `.workshop/devtools/hooks/setup-base` の apt に `shellcheck` を足し、`scripts/install-gitleaks.sh` を呼ぶ。`workshop refresh dev` で、フックの実行時に `/project` が見えるかを確かめ、見えなければスクリプトの内容を読める場所（フックの隣への複製は避け、`workshop` の仕組みで渡せる方法）を調べて合わせる。結果を journal に書く （**結果**: setup-base の時点では `/project` がマウントされていなかったので、gitleaks は `setup-project` で入れる形にした）
 - [X] T016 [US4] `.github/workflows/ci.yml` を直す: `actions/checkout` に `fetch-depth: 0`、`corepack enable` のあとに `sudo bash scripts/install-gitleaks.sh`、`pnpm run check` のあとに `pnpm run secrets:scan`（contracts/commands.md）
-- [ ] T017 [US4] Workshop で `pnpm run secrets:scan` が 0 で終わることと、quickstart.md の2章の失敗の確認（偽の `ghp_` トークン）で 1 になることを確かめる。CI でも、偽の値を含むブランチを push して赤になることを1回確かめ、そのブランチを消す。結果（所要時間を含む）を journal に書く （**残り**: ローカルの確認は Docker Hub のイメージで済み〔履歴全体 no leaks、偽のトークンで 1〕。Workshop の本物の gitleaks と、CI が赤になる確認が残る）
+- [X] T017 [US4] Workshop で `pnpm run secrets:scan` が 0 で終わることと、quickstart.md の2章の失敗の確認（偽の `ghp_` トークン）で 1 になることを確かめる。CI でも、偽の値を含むブランチを push して赤になることを1回確かめ、そのブランチを消す。結果（所要時間を含む）を journal に書く
 
 **Checkpoint**: ローカルと CI の `secrets:scan` が通り、偽のトークンで失敗する
 
@@ -116,7 +116,7 @@ description: "Task list for 006 vps-ops"
 
 - [X] T027 [P] [US5] `deploy/rehearsal/Dockerfile` を作る: `ubuntu:24.04` に `systemd systemd-sysv dbus iproute2 python3 curl ca-certificates git sudo openssh-server` を入れ、`STOPSIGNAL SIGRTMIN+3`、`CMD ["/sbin/init"]`。ラベル `sakura-factory.rehearsal=1`
 - [X] T028 [US5] `deploy/rehearsal/run.sh` を作る: `trap` で成功・失敗とも、ラベル `sakura-factory.rehearsal=1` のコンテナ・ボリューム・ネットワークを消す。手順は、イメージのビルド → `git bundle create` で HEAD を一時ファイルに → `docker run -d --privileged --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock`（cgroup v1 のホストでも動く組み合わせを実装のときに確かめ、journal に書く）とボリューム（コンテナの `/var/lib/docker`、ラベル付き）で起動 → systemd が `running`／`degraded` になるまで待つ → bundle と `deploy/scripts`・`scripts/install-gitleaks.sh` が入ったリポジトリを `docker cp` → `127.0.0.1:3100` で応答する仮のアプリ（`python3 -m http.server 3100` を systemd-run で）→ quickstart.md の4章の 1〜17 を順に実行し、各項目で `ok`／`NG <項目>` を出す（`FACTORY_REPO_URL=<bundle のパス>`、`FACTORY_SKIP_SSH=1`、偽の `SAKURA_AI_API_KEY`、`CADDY_TLS=internal`、`factory.test`・`staging.test`）。12 は `sqlite3 /var/lib/sakura-factory/factory.db .dump | sha256sum` を比べる。全体の所要時間を最後に出す
-- [ ] T029 [US5] Workshop（または開発機の Docker）で `pnpm run deploy:rehearsal` を通す。通らなかった手順は `setup.sh`・`update.sh`・ユニットを直して流し直す。失敗と直し方、所要時間を journal に書く。終わったあと、ラベル付きのコンテナ・ボリュームが残っていないことを確かめる （**残り**: クラウドの作業環境で、Caddy・gitleaks・作業場のイメージを代用して全項目が通った〔journal 参照〕。代用なしの Workshop での実行が残る）
+- [X] T029 [US5] Workshop（または開発機の Docker）で `pnpm run deploy:rehearsal` を通す。通らなかった手順は `setup.sh`・`update.sh`・ユニットを直して流し直す。失敗と直し方、所要時間を journal に書く。終わったあと、ラベル付きのコンテナ・ボリュームが残っていないことを確かめる
 
 **Checkpoint**: 予行演習が 15 分以内に全項目 `ok` で終わり、何も残らない
 
