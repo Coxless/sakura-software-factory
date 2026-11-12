@@ -46,6 +46,12 @@ quickstart 2章の最初の版は、記録したペイロード（依頼者 `oct
 
 `startFactory` が DB を開くので、`main.ts` で 005 の入口（`GateDeps` に DB が要る）を先に作れない。`startFactory` の3つ目の引数を「DB を受け取って依存を返す関数」（`makeServices`）にした。省けば今までどおり HTTP だけで動くので、006 のテストは変えずに通った。
 
+### 予行演習はコミット済みの HEAD しか確かめない
+
+`setup.sh` を変えたあと、コミットする前に `pnpm run deploy:rehearsal` を流すと、9c（`work_dir` が `/var/lib/sakura-factory/work`）だけが NG になった。予行演習は HEAD を `git bundle` にしてコンテナに clone するので、作業ツリーの `setup.sh`・`factory.toml` ではなく HEAD の古い版が流れていた（`deploy/rehearsal/run.sh` 自体は作業ツリーのもの）。コミット（f253bdf）してから流し直すと、1〜16（2b・9b・9c を含む）がすべて ok になった。
+
+- 配備物を変えたときは、コミットしてから予行演習を流す
+
 ## まだ分かっていないこと
 
 - 本物の GitHub App での受付・取得・報告（T033）。`getPermission` が `role_name` に `maintain`・`triage` を返すか、`octokit.auth({ type: "installation" })` のトークンで `http.extraHeader` の clone が通るかは、本物で確かめる
