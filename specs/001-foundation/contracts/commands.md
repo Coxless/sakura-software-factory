@@ -9,9 +9,9 @@
 | `pnpm run lint` | `biome ci .` | | |
 | `pnpm run typecheck` | `tsc --noEmit` | | |
 | `pnpm test` | `vitest run` | | |
-| `pnpm start` | `node src/main.ts` | 設定の読み込み → ログの準備 → マイグレーションの適用を終え、`factory started` を出す | 設定・マイグレーションのエラーを出し、終了コード 1 |
+| `pnpm start` | `node src/main.ts` | 設定の読み込み → ログの準備 → マイグレーションの適用 → HTTP の待ち受けを終えて `factory started` を出し、停止の合図まで動く（006。[contracts/commands.md](../../006-vps-ops/contracts/commands.md)） | 設定・マイグレーション・待ち受けのエラーを出し、終了コード 1 |
 | `pnpm run db:generate` | `drizzle-kit generate` | `src/queue/schema.ts` の変更から `drizzle/` に SQL を作る（開発者だけが使う） | |
 | `pnpm run db:migrate` | `node src/migrate.ts` | 未適用のマイグレーションを適用して終了コード 0。適用済みなら何もせず 0 | 終了コード 1、データベースは適用前のまま |
 
 - CI（`.github/workflows/ci.yml`）は GitHub のランナーで直接、`pnpm install --frozen-lockfile` → `pnpm run sandbox:build`（003）→ `pnpm run check` を呼ぶ。`pnpm run check` には `FACTORY_SANDBOX_REQUIRED=1` を渡し、作業場のテストを飛ばさない
-- 001 の `pnpm start` は起動処理を終えたらそのまま終了する。常駐（HTTP と Worker）は 006・007 で足す
+- `pnpm start` は 006 で常駐（HTTP の待ち受け）になった。Worker は 007 で足す

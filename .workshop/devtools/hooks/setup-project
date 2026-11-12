@@ -1,0 +1,6 @@
+set -eu
+
+# gitleaks（006）。版とチェックサムは scripts/install-gitleaks.sh だけに持つ（CI・VPS と同じ版にする）。
+# setup-base の時点では /project がまだマウントされていないので、マウントのあとに動くこのフックで入れる。
+# workshop ユーザーで動くので、スクリプトは sudo で /usr/local/bin に置く
+bash /project/scripts/install-gitleaks.sh

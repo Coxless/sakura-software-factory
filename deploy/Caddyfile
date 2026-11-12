@@ -1,0 +1,28 @@
+# Caddy の設定（006）。仕様: specs/006-vps-ops/contracts/caddy.md
+# ドメインと TLS は /etc/caddy/caddy.env（ひな形は deploy/caddy.env.example）から環境変数で与える。
+#   FACTORY_DOMAIN: ファクトリー（GitHub の Webhook の宛先）
+#   STAGING_DOMAIN: ステージングのデモアプリ
+#   CADDY_TLS: 本番は ACME の連絡先のメールアドレス、予行演習は internal（内部の認証局で発行する）
+# ポートの決まり:
+#   127.0.0.1:8787 … ファクトリー（factory.toml の [http].port。変えるならここも変える）
+#   127.0.0.1:3100 … ステージングのデモアプリ（010 の compose で 127.0.0.1 にだけ公開する）
+
+{$FACTORY_DOMAIN} {
+	tls {$CADDY_TLS}
+	encode zstd gzip
+
+	# ファクトリーが公開するパスだけを転送する（/webhook は 007、/status は 011 で足す）
+	@factory path /healthz /webhook /status
+	handle @factory {
+		reverse_proxy 127.0.0.1:8787
+	}
+	handle {
+		respond "not found" 404
+	}
+}
+
+{$STAGING_DOMAIN} {
+	tls {$CADDY_TLS}
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3100
+}
