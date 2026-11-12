@@ -515,8 +515,8 @@ function oneShotFailure(
  * 007 の PipelinePort の形: 作業ディレクトリから作業場を作り、runPipeline を回して片付ける。
  * 作業場を作れなければ failed。
  *
- * 007 の PipelineOutcome への対応（data-model.md 4章）: passed → verdict "pass"、rejected → verdict "fail"、
- * failed → failureKind "pipeline_failed"、budget_exceeded・timeout → 同名の failureKind、aborted → 007 の停止の扱い
+ * 007 での扱い（007 research R2。分類は src/pipeline/worker.ts の classifyOutcome）: passed → shipping_not_available、
+ * rejected → judge_rejected、failed → pipeline_failed、budget_exceeded・timeout → 同名、aborted → stopped
  */
 export async function runPipelineInSandbox(
   deps: PipelineDeps,

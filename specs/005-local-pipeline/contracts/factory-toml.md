@@ -23,6 +23,8 @@ max_file_list_chars = 10000   # 計画役に渡すファイル一覧の上限（
 | `max_diff_chars` | integer | 40000 | 1000〜400000 |
 | `max_file_list_chars` | integer | 10000 | 1000〜100000 |
 
+`install_command`（依存のインストールのコマンド）は 007 で足した（[007 の factory-toml.md](../../007-github-intake/contracts/factory-toml.md)）。
+
 ## 既存の項目の使い方
 
 - `[limits].judge_retries`: 不合格（判定の不合格・テスト失敗・変更なし・ターン数の上限・拒否が続いた）のやり直しの上限。実装工程は最大 `judge_retries + 1` 回

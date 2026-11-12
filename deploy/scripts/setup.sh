@@ -103,11 +103,18 @@ if [[ ! -f "${ETC_DIR}/factory.toml" ]]; then
   # 初回だけ作る。保存先を StateDirectory に向ける（以後は上書きしない）
   sed -e "s#^database_path = .*#database_path = \"${STATE_DIR}/factory.db\"#" \
     -e "s#^trace_dir = .*#trace_dir = \"${STATE_DIR}/traces\"#" \
+    -e "s#^work_dir = .*#work_dir = \"${STATE_DIR}/work\"#" \
     "${APP_DIR}/factory.toml" >"${ETC_DIR}/factory.toml"
   chmod 0644 "${ETC_DIR}/factory.toml"
 fi
 check_secret_file "${ETC_DIR}/factory.env" "${APP_DIR}/deploy/factory.env.example" "$FACTORY_USER" \
-  SAKURA_AI_API_KEY
+  SAKURA_AI_API_KEY GITHUB_APP_ID GITHUB_APP_PRIVATE_KEY_PATH GITHUB_WEBHOOK_SECRET
+# GitHub App の秘密鍵（007）。ファイルの場所は factory.env に書く
+app_key="$(grep -E '^GITHUB_APP_PRIVATE_KEY_PATH=' "${ETC_DIR}/factory.env" | cut -d= -f2-)"
+[[ -f "$app_key" ]] || die "GitHub App の秘密鍵 ${app_key} がありません（deploy/README.md の GitHub App の章）"
+key_owner="$(stat -c '%U:%G %a' "$app_key")"
+[[ "$key_owner" == "root:${FACTORY_USER} 640" ]] ||
+  die "${app_key} の所有者と権限を root:${FACTORY_USER}・640 にしてください（現在 ${key_owner}）"
 check_secret_file /etc/caddy/caddy.env "${APP_DIR}/deploy/caddy.env.example" caddy \
   FACTORY_DOMAIN STAGING_DOMAIN CADDY_TLS
 

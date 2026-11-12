@@ -94,7 +94,9 @@ check 1 "setup.sh の1回目はひな形を置いて止まる" \
   "! ${setup} >/tmp/setup1.log 2>&1 && grep -q 'factory.env を作りました' /tmp/setup1.log && test -f /etc/sakura-factory/factory.env"
 
 # 偽の値を書く（予行演習なので本物の値は使わない。起動時に LLM は呼ばない）
-in_box "sed -i 's/^SAKURA_AI_API_KEY=.*/SAKURA_AI_API_KEY=rehearsal-dummy/' /etc/sakura-factory/factory.env"
+in_box "sed -i -e 's/^SAKURA_AI_API_KEY=.*/SAKURA_AI_API_KEY=rehearsal-dummy/' -e 's/^GITHUB_APP_ID=.*/GITHUB_APP_ID=1/' -e 's/^GITHUB_WEBHOOK_SECRET=.*/GITHUB_WEBHOOK_SECRET=rehearsal-dummy-secret/' /etc/sakura-factory/factory.env"
+# 偽の GitHub App の秘密鍵（起動時には解析しない。GitHub を呼ぶのはジョブを処理するときだけ）
+in_box "printf '%s\\n' '-----BEGIN RSA PRIVATE KEY-----' 'rehearsal-dummy' '-----END RSA PRIVATE KEY-----' >/etc/sakura-factory/github-app.pem && chown root:factory /etc/sakura-factory/github-app.pem && chmod 0640 /etc/sakura-factory/github-app.pem"
 in_box "${setup} >/tmp/setup1b.log 2>&1 || true"
 in_box "sed -i -e 's/^FACTORY_DOMAIN=.*/FACTORY_DOMAIN=factory.test/' -e 's/^STAGING_DOMAIN=.*/STAGING_DOMAIN=staging.test/' -e 's/^CADDY_TLS=.*/CADDY_TLS=internal/' /etc/caddy/caddy.env"
 
@@ -126,6 +128,8 @@ check 8 "HTTP は HTTPS に 308 で転送" \
 check 9 "秘密情報のファイルは root:factory 640" "test \"\$(stat -c '%U:%G %a' /etc/sakura-factory/factory.env)\" = 'root:factory 640'"
 check 9b "データの置き場所と DB は factory だけが読める" \
   "test \"\$(stat -c '%U %a' /var/lib/sakura-factory)\" = 'factory 750' && test \"\$(stat -c '%a' /var/lib/sakura-factory/factory.db)\" = 640"
+check 9c "作業ディレクトリ（007）は StateDirectory の下" \
+  "grep -q '^work_dir = \"/var/lib/sakura-factory/work\"' /etc/sakura-factory/factory.toml"
 check 10 "強制終了から 30 秒以内に自動で再起動する" \
   "before=\$(systemctl show -p MainPID --value factory); kill -9 \$before; for i in \$(seq 1 30); do sleep 1; after=\$(systemctl show -p MainPID --value factory); if [ \"\$after\" != 0 ] && [ \"\$after\" != \"\$before\" ] && ${curl_factory} https://factory.test/healthz | grep -q ok; then exit 0; fi; done; exit 1"
 check 11 "journald から JSON のログを読める" "journalctl -u factory -o cat -n 1 --no-pager | python3 -c 'import json,sys; json.loads(sys.stdin.readline())'"

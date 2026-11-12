@@ -5,8 +5,12 @@ import { join } from "node:path";
 import { Writable } from "node:stream";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { type FactoryConfig, parseConfig } from "./config.ts";
+import { createBareRepo, FakeGitHub, signedRequest } from "./github/testing.ts";
 import { createLogger } from "./log.ts";
-import { installSignalHandlers, startFactory } from "./main.ts";
+import { type FactoryServices, installSignalHandlers, startFactory } from "./main.ts";
+import type { PipelineResult } from "./pipeline/run.ts";
+import { openDatabase } from "./queue/db.ts";
+import { jobs } from "./queue/schema.ts";
 
 const dirs: string[] = [];
 
@@ -93,6 +97,93 @@ describe("startFactory", () => {
       `127.0.0.1:${port}`,
     );
     await first.stop();
+  });
+});
+
+describe("startFactory: 受付と Worker（007）", () => {
+  const SECRET = "test-webhook-secret";
+  const passed: PipelineResult = {
+    outcome: "passed",
+    planText: "",
+    verdict: { verdict: "pass", reasons: "条件を満たす", criteria: [] },
+    reason: "",
+    rounds: [],
+    retries: 0,
+    requests: 0,
+    diff: "",
+    diffStat: { files: 1, insertions: 1, deletions: 0 },
+    tracePath: "/tmp/t.jsonl",
+  };
+
+  async function services(github: FakeGitHub): Promise<FactoryServices> {
+    const { baseUrl } = await createBareRepo();
+    return {
+      github,
+      webhookSecret: SECRET,
+      pipeline: async () => passed,
+      install: async () => ({ exitCode: 0, stderrTail: "" }),
+      removeSandboxes: async () => {},
+      cloneBaseUrl: baseUrl,
+    };
+  }
+
+  const payload = {
+    action: "created",
+    issue: { number: 7, state: "open" },
+    comment: { id: 11, body: "@agent README を直して", user: { login: "Coxless", type: "User" } },
+    repository: { full_name: "octo-org/demo" },
+  };
+
+  test("/webhook で積んだジョブを Worker が処理し、報告してから stop() で止まる", async () => {
+    const { logger } = capture();
+    const dir = tempDir();
+    const github = new FakeGitHub({ permissions: { coxless: "admin" } });
+    const svc = await services(github);
+    const factory = await startFactory(configWith(dir), logger, () => svc);
+    const res = await fetch(
+      `http://127.0.0.1:${factory.address.port}/webhook`,
+      signedRequest(SECRET, "issue_comment", payload),
+    );
+    expect(res.status).toBe(202);
+    await vi.waitFor(() => expect(github.comments).toHaveLength(1), { timeout: 5000 });
+    expect(github.comments[0]?.body).toContain("shipping_not_available");
+    await factory.stop();
+    expect(factory.database.open).toBe(false);
+  });
+
+  test("起動時に、処理中のまま残ったジョブを restarted で failed にしてから待ち受ける", async () => {
+    const { logger } = capture();
+    const dir = tempDir();
+    const config = configWith(dir);
+    const first = await startFactory(config, logger);
+    await first.stop();
+    const handle = openDatabase(config.storage.database_path);
+    handle.db
+      .insert(jobs)
+      .values({
+        repo: "octo-org/demo",
+        issue_number: 7,
+        trigger_comment_id: 1,
+        requested_by: "Coxless",
+        instruction: "x",
+        status: "implementing",
+        created_at: 1,
+        updated_at: 1,
+      })
+      .run();
+    handle.close();
+
+    const github = new FakeGitHub();
+    const svc = await services(github);
+    const factory = await startFactory(config, logger, () => svc);
+    const [job] = factory.database.prepare("SELECT status, failure_reason FROM jobs").all() as {
+      status: string;
+      failure_reason: string;
+    }[];
+    expect(job?.status).toBe("failed");
+    expect(job?.failure_reason).toMatch(/^restarted: /);
+    expect(github.comments).toHaveLength(1);
+    await factory.stop();
   });
 });
 

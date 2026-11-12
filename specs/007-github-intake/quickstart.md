@@ -1,0 +1,50 @@
+# Quickstart: 受付とジョブキュー（007）
+
+本機能が動くことを確かめる手順。コマンドは Workshop の中で実行する（`workshop exec dev -- <command>`）。
+
+## 1. 自動テスト（GitHub・LLM なし）
+
+```bash
+pnpm run check
+```
+
+- `src/github/*.test.ts`: 署名（正しい・ない・別の秘密・書き換え）、依頼の判定（`@agent` の形、引用、コード、ボット、PR、閉じた Issue、編集）、記録したペイロード
+- `src/http/webhook.test.ts`: contracts/webhook.md の判定の順と応答のすべて（偽の GitHub）
+- `src/pipeline/state.test.ts`: 遷移の表のすべての組（許可・拒否）、記録が1件残ること
+- `src/pipeline/worker.test.ts`: ローカルの bare リポジトリ（`file://`）と偽の 005 の入口（`PipelineResult` を返す）で、取り出し → Issue の取得 → 取得 → 作業ブランチ → インストール → 入口 → 報告 → 片付け。`onPhase` の同じ状態の扱い、005 の結果の分類、同時に1件、期限、起動時の掃除、停止（インストール中を含む）。作業ディレクトリの `.git/config` にトークンがないこと
+- `src/pipeline/report.test.ts`: 文面、1回だけ、秘密情報の伏せ字、投稿の失敗
+
+## 2. 署名付きの要求を手で送る（ローカル）
+
+偽の秘密鍵はリポジトリに置かず、一時ディレクトリに作る。記録したペイロードの依頼者（`octo-requester`）は `factory.toml` の許可ユーザーにいないので、権限の確認まで進めるには依頼者を `Coxless` に書き換える。
+
+```bash
+tmp=$(mktemp -d)
+printf '%s\n' '-----BEGIN RSA PRIVATE KEY-----' 'quickstart-dummy' '-----END RSA PRIVATE KEY-----' >"$tmp/dummy-key.pem"
+sed -e "s#^database_path = .*#database_path = \"$tmp/factory.db\"#" -e "s#^trace_dir = .*#trace_dir = \"$tmp/traces\"#" \
+  -e "s#^work_dir = .*#work_dir = \"$tmp/work\"#" factory.toml >"$tmp/factory.toml"
+export FACTORY_CONFIG="$tmp/factory.toml" GITHUB_WEBHOOK_SECRET=local-test-secret GITHUB_APP_ID=1 \
+  GITHUB_APP_PRIVATE_KEY_PATH="$tmp/dummy-key.pem" SAKURA_AI_API_KEY=dummy   # 起動時の確認だけを通す。LLM は呼ばない
+pnpm start &
+body=$(python3 -c 'import json,sys; p=json.load(open("src/github/fixtures/issue_comment.created.agent.json")); p["comment"]["user"]["login"]="Coxless"; sys.stdout.write(json.dumps(p, ensure_ascii=False))')
+sig="sha256=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$GITHUB_WEBHOOK_SECRET" -hex | sed 's/^.* //')"
+curl -s -X POST http://127.0.0.1:8787/webhook -H "X-GitHub-Event: issue_comment" \
+  -H "X-GitHub-Delivery: local-1" -H "X-Hub-Signature-256: $sig" --data-binary "$body"
+# → {"error":"internal_error"}（500）。偽の秘密鍵で App の JWT を作れないため。GitHub には届かない
+curl -s -X POST http://127.0.0.1:8787/webhook -H "X-GitHub-Event: issue_comment" --data-binary "$body"
+# → {"error":"invalid_signature"}（401）
+kill -TERM %1   # 終了コード 0 で止まる
+```
+
+## 3. テスト用のリポジトリで本物の GitHub を確かめる（M2、手で1回）
+
+前提: GitHub App を contracts/github-app.md のとおりに作り、テスト用のリポジトリに入れる。AI解禁の前は、確認用の `factory.toml` で `[models].verifier` を `[models].implementer` と同じにする。005 は LLM を呼ぶ前に `failed` を返すので（原則 III の確認）、取得・インストール・作業場・報告までを、さくらを呼ばずに通せる。ローカルで受けるには、App の Webhook の URL を一時的に転送の仕組み（例: `gh webhook forward`）に向ける。
+
+| # | 操作 | 期待 |
+|---|---|---|
+| 1 | 権限のあるアカウントで `@agent README を直して` とコメント | 数秒で `eyes` のリアクション。`jobs` に1行 |
+| 2 | 1のジョブを Worker が処理する（AI解禁の前は上の設定で） | 解禁前: Issue に `pipeline_failed` の報告が1回（理由に「同じモデル」）。`work_dir/job-<id>` と作業場が残らない。解禁後（設定を戻す）: 報告が1回（008 までは `shipping_not_available`・`judge_rejected` など）で、`job_events` に `planning`〜`judging` の遷移 |
+| 3 | 権限のないアカウントで同じコメント | 何も起きない（ログに `ignored`） |
+| 4 | App の「Recent Deliveries」から1の配送を再送 | `duplicate`。ジョブは増えない |
+
+結果は `docs/journal/` に書く。

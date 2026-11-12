@@ -119,7 +119,7 @@
 | 期限を過ぎた | `timeout` |
 | 呼び出し側が中断した | `aborted` |
 
-007 の `PipelineOutcome` への対応（007 の plan で合わせる）: `passed` → `verdict: "pass"`、`rejected` → `verdict: "fail"`（報告して終了）、`failed` → `failureKind: "pipeline_failed"`、`budget_exceeded`・`timeout` → 同名の `failureKind`、`aborted` → 007 の停止の扱い。
+007 での扱い（007 の research R2）: 007 は `PipelineResult` をそのまま受け取り、`passed` → `shipping_not_available`（008 までは出荷しない）、`rejected` → `judge_rejected`、`failed` → `pipeline_failed`、`budget_exceeded`・`timeout` → 同名、`aborted` → `stopped` に分類して報告する。
 
 ## 5. 設定 `[pipeline]`
 

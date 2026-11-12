@@ -2,13 +2,32 @@ import type { EventEmitter } from "node:events";
 import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
 import type Database from "better-sqlite3";
-import { ConfigError, type FactoryConfig, isLoopbackHost, loadConfig } from "./config.ts";
+import {
+  ConfigError,
+  type FactoryConfig,
+  isLoopbackHost,
+  loadConfig,
+  requireEnv,
+} from "./config.ts";
+import { createGitHubClient, readPrivateKey } from "./github/client.ts";
+import type { GitHubPort } from "./github/port.ts";
 import { createApp } from "./http/app.ts";
 import { startServer } from "./http/server.ts";
-import { assertProductionProvider } from "./llm/provider.ts";
+import { createWebhookHandler, type WebhookHandler } from "./http/webhook.ts";
+import { apiKeyEnvOf, assertProductionProvider, createLlmModels } from "./llm/provider.ts";
 import { installStreamFnGuard } from "./llm/stream.ts";
 import { createLogger, type Logger } from "./log.ts";
-import { openDatabase, runMigrations } from "./queue/db.ts";
+import { runPipelineInSandbox } from "./pipeline/run.ts";
+import {
+  createWorker,
+  type PipelinePort,
+  recoverOnStartup,
+  type Worker,
+  type WorkerDeps,
+} from "./pipeline/worker.ts";
+import { type Db, openDatabase, runMigrations } from "./queue/db.ts";
+import { installDependencies, removeStaleSandboxes } from "./sandbox/docker.ts";
+import { maskSecrets } from "./trace/mask.ts";
 
 /** 動いているファクトリー。stop() は何度呼んでもよい */
 export interface RunningFactory {
@@ -17,11 +36,28 @@ export interface RunningFactory {
   stop(): Promise<void>;
 }
 
+/** 受付と Worker が使う外の世界（007）。本物は createServices、テストでは偽物 */
+export interface FactoryServices {
+  github: GitHubPort;
+  /** GITHUB_WEBHOOK_SECRET */
+  webhookSecret: string;
+  pipeline: PipelinePort;
+  install: WorkerDeps["install"];
+  removeSandboxes: WorkerDeps["removeSandboxes"];
+  /** テストでは file:// の bare リポジトリ */
+  cloneBaseUrl?: string;
+}
+
 /**
- * DB を開いてマイグレーションを適用し、HTTP の待ち受けを始める。
- * 失敗したら開いた DB を閉じて投げる。Worker は 007 で足す
+ * DB を開いてマイグレーションを適用し、HTTP の待ち受けを始める。失敗したら開いた DB を閉じて投げる。
+ * makeServices を渡すと、起動時の掃除 → Worker の開始 → /webhook 付きの待ち受け、の順に始める（007）。
+ * 005 の入口は開いた DB を使うので、DB を受け取って依存を返す関数で渡す。省くと HTTP（/healthz）だけ
  */
-export async function startFactory(config: FactoryConfig, logger: Logger): Promise<RunningFactory> {
+export async function startFactory(
+  config: FactoryConfig,
+  logger: Logger,
+  makeServices?: (db: Db) => FactoryServices,
+): Promise<RunningFactory> {
   const database = config.storage.database_path;
   const handle = openDatabase(database);
   try {
@@ -29,6 +65,42 @@ export async function startFactory(config: FactoryConfig, logger: Logger): Promi
   } catch (error) {
     handle.close();
     throw new Error("マイグレーションに失敗しました", { cause: error });
+  }
+
+  let worker: Worker | undefined;
+  let webhook: WebhookHandler | undefined;
+  if (makeServices) {
+    const services = makeServices(handle.db);
+    const deps: WorkerDeps = {
+      db: handle.db,
+      config,
+      logger,
+      github: services.github,
+      pipeline: services.pipeline,
+      install: services.install,
+      removeSandboxes: services.removeSandboxes,
+      ...(services.cloneBaseUrl ? { cloneBaseUrl: services.cloneBaseUrl } : {}),
+    };
+    if (config.pipeline.install_command === "") {
+      logger.warn("[pipeline].install_command が空です。依存のインストールを飛ばします");
+    }
+    try {
+      await recoverOnStartup(deps);
+    } catch (error) {
+      handle.close();
+      throw new Error("起動時の掃除に失敗しました", { cause: error });
+    }
+    const started = createWorker(deps);
+    worker = started;
+    webhook = createWebhookHandler({
+      db: handle.db,
+      config,
+      logger,
+      github: services.github,
+      secret: services.webhookSecret,
+      wake: () => started.wake(),
+    });
+    started.start();
   }
 
   const { host, port, shutdown_timeout_seconds: shutdownTimeoutSeconds } = config.http;
@@ -41,12 +113,17 @@ export async function startFactory(config: FactoryConfig, logger: Logger): Promi
   let server: Awaited<ReturnType<typeof startServer>>;
   try {
     server = await startServer({
-      app: createApp({ sqlite: handle.sqlite, logger }),
+      app: createApp({
+        sqlite: handle.sqlite,
+        logger,
+        ...(webhook ? { webhook: webhook.app } : {}),
+      }),
       host,
       port,
       shutdownTimeoutSeconds,
     });
   } catch (error) {
+    await worker?.stop();
     handle.close();
     throw error;
   }
@@ -61,10 +138,14 @@ export async function startFactory(config: FactoryConfig, logger: Logger): Promi
     address: server.address,
     database: handle.sqlite,
     stop() {
-      stopping ??= server.close().then(() => {
+      // Worker（処理中のジョブを中断して報告）→ HTTP → 応答のあとの処理 → DB の順に止める（research R11）
+      stopping ??= (async () => {
+        await worker?.stop();
+        await server.close();
+        await webhook?.idle();
         handle.close();
         logger.info("factory stopped");
-      });
+      })();
       return stopping;
     },
   };
@@ -101,7 +182,36 @@ export function installSignalHandlers({ signals, stop, exit }: SignalHandlerDeps
   }
 }
 
-/** 起動処理: 設定 → ログ → DB を開いてマイグレーション → HTTP の待ち受け。停止の合図まで動く */
+/** 本物の GitHub・005 の入口・依存のインストール（環境変数は呼び出し側で読む） */
+export function createServices(
+  config: FactoryConfig,
+  logger: Logger,
+  env: { appId: string; privateKey: string; webhookSecret: string; apiKey: string },
+  db: Db,
+): FactoryServices {
+  const gate = { db, config, models: createLlmModels(config), logger, apiKey: env.apiKey };
+  const pipeline: PipelinePort = (input) => runPipelineInSandbox({ gate }, input);
+  return {
+    github: createGitHubClient({ appId: env.appId, privateKey: env.privateKey }),
+    webhookSecret: env.webhookSecret,
+    pipeline,
+    install: async (jobId, workdir) => {
+      const result = await installDependencies({
+        jobId,
+        workspace: workdir,
+        sandbox: config.sandbox,
+        command: ["sh", "-c", config.pipeline.install_command],
+      });
+      const stderr = new TextDecoder().decode(result.stderr);
+      return { exitCode: result.exitCode, stderrTail: maskSecrets(stderr.slice(-2000)) };
+    },
+    removeSandboxes: async (jobId) => {
+      await removeStaleSandboxes(jobId === undefined ? {} : { jobId });
+    },
+  };
+}
+
+/** 起動処理: 設定 → 環境変数 → ログ → DB とマイグレーション → 起動時の掃除 → Worker → HTTP。停止の合図まで動く */
 async function main(): Promise<number> {
   // LLM 呼び出しはすべて予算ゲートを通す。Agent に streamFn を渡し忘れても素通りさせない
   installStreamFnGuard();
@@ -116,10 +226,23 @@ async function main(): Promise<number> {
     return 1;
   }
 
+  let env: Parameters<typeof createServices>[2];
+  try {
+    env = {
+      appId: requireEnv("GITHUB_APP_ID"),
+      privateKey: readPrivateKey(requireEnv("GITHUB_APP_PRIVATE_KEY_PATH")),
+      webhookSecret: requireEnv("GITHUB_WEBHOOK_SECRET"),
+      apiKey: requireEnv(apiKeyEnvOf(config)),
+    };
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    return 1;
+  }
+
   const logger: Logger = createLogger({ level: config.log.level });
   let factory: RunningFactory;
   try {
-    factory = await startFactory(config, logger);
+    factory = await startFactory(config, logger, (db) => createServices(config, logger, env, db));
   } catch (error) {
     logger.fatal({ err: error, database: config.storage.database_path }, "起動に失敗しました");
     return 1;
