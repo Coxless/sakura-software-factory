@@ -18,7 +18,7 @@
 ## R3. 停止処理
 
 - **決定**: SIGTERM・SIGINT で `server.close()` を呼び、`[http] shutdown_timeout_seconds`（既定 10、1〜60）を過ぎたら残りの接続を閉じて終わる。2回目の合図では即座に終わる（終了コード 130/143）。終わる前にデータベースを閉じる
-- **理由**: FR-005、SC-004。systemd の `TimeoutStopSec` を上限より長く（20 秒）して、systemd の強制終了より先にプロセスが自分で終わるようにする
+- **理由**: FR-005、SC-004。systemd の `TimeoutStopSec` を上限（60 秒）より長く（70 秒）して、systemd の強制終了より先にプロセスが自分で終わるようにする
 - **代替**: 何もしない（systemd に任せる）→ SQLite の WAL がチェックポイントされずに残る
 
 ## R4. 待ち受けの設定
@@ -98,7 +98,7 @@
 
 ## R12. ファイアウォールと SSH
 
-- **決定**: `ufw` で受信を既定で拒否し、`22/tcp`・`80/tcp`・`443/tcp` だけを許可する。SSH は `/etc/ssh/sshd_config.d/50-sakura-factory.conf` で `PasswordAuthentication no`・`PermitRootLogin prohibit-password`。SSH の設定を変える前に、`authorized_keys` に鍵が1つ以上あることを確かめ、なければ止まる（締め出しを防ぐ）
+- **決定**: `ufw` で受信を既定で拒否し、`22/tcp`・`80/tcp`・`443/tcp` だけを許可する。SSH は `/etc/ssh/sshd_config.d/01-sakura-factory.conf` で `PasswordAuthentication no`・`PermitRootLogin prohibit-password`。sshd は同じ設定名なら先に読んだ値を使い、`sshd_config.d` は名前順に読むので、cloud-init の `50-cloud-init.conf`（`PasswordAuthentication yes` のことがある）より先に読まれる `01-` にし、置いたあと `sshd -T` で実際に効く値を確かめる。SSH の設定を変える前に、`authorized_keys` に鍵が1つ以上あることを確かめ、なければ止まる（締め出しを防ぐ）
 - **理由**: FR-025。さくらのVPS のパケットフィルターは画面での設定なので、手順書で同じ3ポートにすることを確かめる
 - **Docker と ufw**: Docker が公開したポートは ufw を迂回する。ステージング（010）は `127.0.0.1:3100` にだけ公開する決まりにして、外から届かないようにする（contracts/caddy.md）
 

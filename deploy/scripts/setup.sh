@@ -142,13 +142,25 @@ else
   if ! cat /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys 2>/dev/null | grep -qE '^(ssh-|ecdsa-|sk-)'; then
     die "authorized_keys に SSH の鍵がありません。鍵でログインできるようにしてから流し直してください"
   fi
-  cat >/etc/ssh/sshd_config.d/50-sakura-factory.conf <<'CONF'
-# setup.sh（006）が置く。パスワードでのログインを止める
+  # sshd は同じ設定名なら先に読んだ値を使い、sshd_config.d は名前順に読む。
+  # cloud-init のイメージには 50-cloud-init.conf（PasswordAuthentication yes）があるので、それより先に読まれる名前にする
+  rm -f /etc/ssh/sshd_config.d/50-sakura-factory.conf
+  cat >/etc/ssh/sshd_config.d/01-sakura-factory.conf <<'CONF'
+# setup.sh（006）が置く。パスワードでのログインを止める。
+# 名前順で最初に読まれるよう 01- にする（sshd は先に読んだ値を使う）
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin prohibit-password
 CONF
   sshd -t || die "sshd の設定の検証に失敗しました"
+  # ほかの設定ファイルに負けていないか、実際に効く値で確かめる
+  effective="$(sshd -T 2>/dev/null)"
+  # prohibit-password は sshd -T では旧名の without-password で出る版がある
+  for expected in 'passwordauthentication no' 'kbdinteractiveauthentication no' \
+    'permitrootlogin (prohibit-password|without-password)'; do
+    grep -qxE "$expected" <<<"$effective" ||
+      die "sshd の実際の設定が「${expected}」になりません（/etc/ssh/sshd_config と sshd_config.d を確かめてください）"
+  done
   systemctl reload ssh
 fi
 

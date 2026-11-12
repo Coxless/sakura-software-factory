@@ -23,7 +23,7 @@
 | 6 | コードの取得 | `/opt/sakura-factory/app` がなければ `FACTORY_REPO_URL` から `git clone`（手順書どおりなら既にあるので何もしない。版の切り替えは update.sh） | 何もしない |
 | 7 | 設定と秘密情報 | `/etc/sakura-factory/factory.toml` がなければ作る（[factory-toml.md](./factory-toml.md)）。`factory.env` と `/etc/caddy/caddy.env` がなければ、ひな形を写して**止まる**（運用者が値を書いてから流し直す）。あれば所有者と権限（`0640`）を確かめ、違えば止まる | 上書きしない |
 | 8 | systemd と Caddy | `factory.service`・Caddy の drop-in・`Caddyfile` を写し、`daemon-reload`、`caddy validate`、`systemctl enable factory caddy docker` | 写し直すだけ |
-| 9 | ファイアウォールと SSH | ufw: 受信は既定で拒否、22・80・443 を許可して有効化。SSH: 鍵が1つ以上あるのを確かめてからパスワードでのログインを無効にし、`sshd -t` のあと reload | 同じ設定のまま |
+| 9 | ファイアウォールと SSH | ufw: 受信は既定で拒否、22・80・443 を許可して有効化。SSH: 鍵が1つ以上あるのを確かめてから `sshd_config.d/01-sakura-factory.conf` でパスワードでのログインを無効にし、`sshd -t` と `sshd -T`（実際に効く値）を確かめたあと reload | 同じ設定のまま |
 | 10 | 更新 | `update.sh "$FACTORY_REF"` を呼ぶ | 同じ版なら依存とイメージは変わらない |
 
 - 予行演習でだけ、`FACTORY_SKIP_SSH=1` で手順9の SSH の部分を飛ばせる（コンテナに SSH の鍵がないため）。ファイアウォールは飛ばさない

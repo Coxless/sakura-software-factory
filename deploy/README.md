@@ -83,6 +83,7 @@ deployed <コミット> (origin/main)
 | HTTP から HTTPS へ                   | 手元から `curl -sI http://factory.example.jp/healthz`                                         | `308` と `Location: https://...`              |
 | ログ                                 | `journalctl -u factory -o cat -n 5`                                                           | JSON の行（`"msg":"factory started"` を含む） |
 | ファイアウォール                     | `sudo ufw status`                                                                             | `22/tcp`・`80/tcp`・`443/tcp` だけ `ALLOW`    |
+| SSH はパスワードで入れない           | `sudo sshd -T \| grep -E '^(passwordauthentication\|permitrootlogin) '`                        | `passwordauthentication no` と `permitrootlogin without-password`（版によって `prohibit-password`） |
 | ファクトリーのポートが外から届かない | 手元から `nc -zv -w 3 <VPS の IP> 8787`                                                       | 届かない（タイムアウトか拒否）                |
 | 動いている版                         | `git -C /opt/sakura-factory/app rev-parse HEAD`                                               | 4章の `deployed` のコミット                   |
 | gitleaks                             | `gitleaks version`                                                                            | `8.30.1`                                      |

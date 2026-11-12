@@ -25,8 +25,8 @@ EnvironmentFile=/etc/sakura-factory/factory.env
 ExecStart=/opt/node/bin/node src/main.ts
 Restart=on-failure
 RestartSec=5
-# factory.toml の [http].shutdown_timeout_seconds（上限 60、既定 10）より長くし、自分で終わるのを待つ
-TimeoutStopSec=20
+# factory.toml の [http].shutdown_timeout_seconds の上限（60）より長くし、自分で終わるのを待つ
+TimeoutStopSec=70
 # DB・軌跡・作業ディレクトリ（007）の置き場所 /var/lib/sakura-factory
 StateDirectory=sakura-factory
 StateDirectoryMode=0750

@@ -23,7 +23,7 @@ EnvironmentFile=/etc/sakura-factory/factory.env
 ExecStart=/opt/node/bin/node src/main.ts
 Restart=on-failure
 RestartSec=5
-TimeoutStopSec=20
+TimeoutStopSec=70
 StateDirectory=sakura-factory
 StateDirectoryMode=0750
 UMask=0027
@@ -50,7 +50,7 @@ WantedBy=multi-user.target
 | 秘密情報（FR-010） | `EnvironmentFile=`（`root:factory`、`0640`）。ユニットに値を書かない |
 | 保護設定（FR-011） | `ProtectSystem=strict` で書き込みは `StateDirectory`（`/var/lib/sakura-factory`）だけ。Docker のソケットは `SupplementaryGroups=docker` で使う |
 | ログ（FR-012） | 標準出力（pino の JSON）を journald へ。`journalctl -u factory -o cat` で JSON を読める |
-| 停止（SC-004） | `TimeoutStopSec=20` は `[http] shutdown_timeout_seconds` の上限 10 より長い |
+| 停止（SC-004） | `TimeoutStopSec=70` は `[http] shutdown_timeout_seconds` の上限 60 より長い（既定の 10 秒で終わるので SC-004 は既定のまま満たす） |
 
 - `PrivateTmp=yes` の `/tmp` は Docker デーモンから見えない。作業場に bind mount する作業ディレクトリは `/var/lib/sakura-factory` の下に置く（007）
 - `MemoryDenyWriteExecute` は Node の JIT と両立しないので使わない
