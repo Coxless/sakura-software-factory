@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { compactionNote } from "../harness/context.ts";
-import { replayRequests } from "./replay.ts";
+import { replayCompletion, replayRequests } from "./replay.ts";
 import type { TraceRecord } from "./writer.ts";
 
 const common = (run: number, seq: number) => ({
@@ -92,5 +92,46 @@ describe("replayRequests", () => {
 
   test("run_start がなければ例外", () => {
     expect(() => replayRequests(records, 2)).toThrow(/run_start/);
+  });
+});
+
+describe("replayCompletion（005）", () => {
+  test("再要求のある run で、各呼び出しの入力を復元する", () => {
+    const base = (seq: number, run = 7) => ({ ts: 0, run, phase: "plan", attempt: 1, seq });
+    const lines: TraceRecord[] = [
+      {
+        ...base(0),
+        type: "llm_request",
+        model: "p",
+        systemPrompt: "SYS",
+        messages: [{ role: "user", text: "Q" }],
+        truncated: [],
+      },
+      { ...base(1), type: "message", message: { role: "assistant", content: [] } },
+      { ...base(2), type: "validation", ok: false, extracted: false, errors: [] },
+      { ...base(0, 8), type: "note", message: "別の run" },
+      {
+        ...base(3),
+        type: "llm_request",
+        model: "p",
+        systemPrompt: "SYS",
+        messages: [
+          { role: "assistant", text: "壊れた" },
+          { role: "user", text: "直して" },
+        ],
+        truncated: [],
+      },
+    ];
+    expect(replayCompletion(lines, 7)).toEqual([
+      { systemPrompt: "SYS", messages: [{ role: "user", text: "Q" }] },
+      {
+        systemPrompt: "SYS",
+        messages: [
+          { role: "user", text: "Q" },
+          { role: "assistant", text: "壊れた" },
+          { role: "user", text: "直して" },
+        ],
+      },
+    ]);
   });
 });

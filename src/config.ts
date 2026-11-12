@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parse, TomlError } from "smol-toml";
-import Type, { type Static } from "typebox";
+import Type, { type Static, type TSchema } from "typebox";
 import Value from "typebox/value";
 import { LOG_LEVELS } from "./log.ts";
 
@@ -17,6 +17,10 @@ const Count = (minimum: number, defaultValue?: number) =>
 const Range = (minimum: number, maximum: number, defaultValue: number) =>
   Type.Integer({ minimum, maximum, default: defaultValue });
 const strict = { additionalProperties: false } as const;
+
+/** 作業の種類（005 の計画役の出力・008 の自動マージ条件）。src/pipeline/plan.ts が re-export する */
+export const WORK_TYPES = ["bugfix", "test", "docs", "refactor", "feature", "chore"] as const;
+export type WorkType = (typeof WORK_TYPES)[number];
 
 /** ツールで書き込みを拒否するパス（層3）。auto_merge.forbidden_paths（層6）とは別の一覧 */
 export const DEFAULT_DENY_WRITE_PATHS = [
@@ -155,6 +159,19 @@ export const FactoryConfigSchema = Type.Object(
       },
       { ...strict, default: {} },
     ),
+    pipeline: Type.Object(
+      {
+        /** 工程内テストのコマンド（作業場で sh -c で順に実行）。空なら工程内テストを飛ばす */
+        check_commands: Type.Array(NonEmpty, { default: ["pnpm run check"] }),
+        check_timeout_seconds: Range(10, 3600, 600),
+        /** 1回の実装工程で、テストの失敗を差し込む回数の上限 */
+        max_check_feedbacks: Range(0, 10, 3),
+        max_check_log_chars: Range(1000, 100000, 8000),
+        max_diff_chars: Range(1000, 400000, 40000),
+        max_file_list_chars: Range(1000, 100000, 10000),
+      },
+      { ...strict, default: {} },
+    ),
   },
   strict,
 );
@@ -238,6 +255,13 @@ function translate(error: SchemaError): ConfigIssue[] {
   }
 }
 
+/** スキーマの誤りを「パス・日本語の理由」の一覧にする（005 の計画役・検査役の出力の検証でも使う） */
+export function describeSchemaErrors(schema: TSchema, value: unknown): ConfigIssue[] {
+  return [...Value.Errors(schema, value)].flatMap((error) =>
+    translate(error as unknown as SchemaError),
+  );
+}
+
 function isValidTimeZone(timeZone: string): boolean {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone });
@@ -293,6 +317,17 @@ function crossCheck(value: Record<string, unknown>): ConfigIssue[] {
       });
     }
   }
+  const autoMerge = value.auto_merge as Record<string, unknown> | undefined;
+  if (autoMerge && typeof autoMerge === "object" && Array.isArray(autoMerge.allowed_work_types)) {
+    for (const [i, type] of autoMerge.allowed_work_types.entries()) {
+      if (typeof type === "string" && !(WORK_TYPES as readonly string[]).includes(type)) {
+        issues.push({
+          path: `/auto_merge/allowed_work_types/${i}`,
+          message: `作業の種類（${WORK_TYPES.join(", ")}）のどれかにしてください（現在 "${type}"）`,
+        });
+      }
+    }
+  }
   return issues;
 }
 
@@ -326,12 +361,7 @@ export function parseConfig(
   }
 
   const value = Value.Default(FactoryConfigSchema, raw) as Record<string, unknown>;
-  const issues = [
-    ...[...Value.Errors(FactoryConfigSchema, value)].flatMap((error) =>
-      translate(error as unknown as SchemaError),
-    ),
-    ...crossCheck(value),
-  ];
+  const issues = [...describeSchemaErrors(FactoryConfigSchema, value), ...crossCheck(value)];
   if (issues.length > 0) throw new ConfigError(source, issues);
 
   const config = value as Static<typeof FactoryConfigSchema>;

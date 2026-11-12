@@ -27,7 +27,17 @@ export interface InitialContext {
 }
 
 /** データを入れる区切りのタグ */
-export const DATA_TAGS = ["agents_md", "issue", "plan", "feedback"] as const;
+export const DATA_TAGS = [
+  "agents_md",
+  "issue",
+  "plan",
+  "feedback",
+  // 005: 計画役・検査役の入力
+  "instruction",
+  "files",
+  "diff",
+  "checks",
+] as const;
 
 export const NO_AGENTS_MD =
   "（AGENTS.md はありません。テストの実行方法は package.json などから判断してください）";

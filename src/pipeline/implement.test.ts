@@ -498,6 +498,85 @@ function projectPi(messages: { role: string; content?: unknown }[]): Projected[]
   }));
 }
 
+describe("onComplete（005 の工程内テストの口）", () => {
+  test("文字列を返すと差し込んで続け、undefined で完了。completionChecks を数える", async () => {
+    const t = setup({ responses: [textResponse("できました"), textResponse("直しました")] });
+    const answers = ["test failed: expected 2", undefined];
+    const signals: AbortSignal[] = [];
+    const result = await runImplementer(t.deps, {
+      ...t.input,
+      onComplete: async (signal) => {
+        signals.push(signal);
+        return answers.shift();
+      },
+    });
+    expect(result).toMatchObject({
+      outcome: "completed",
+      completionChecks: 2,
+      turns: 2,
+      lastMessage: "直しました",
+    });
+    expect(signals).toHaveLength(2);
+    const second = requestText(t.gate.fake.requests[1] as { messages: unknown[] });
+    expect(second).toContain('<feedback source=\\"steering\\">');
+    expect(second).toContain("test failed: expected 2");
+    const steers = t.trace().filter((r) => r.type === "steer");
+    expect(steers.map((r) => r.type === "steer" && r.text)).toEqual(["test failed: expected 2"]);
+  });
+
+  test("文字列を返し続けてもターン数の上限で max_turns", async () => {
+    const t = setup({
+      responses: [textResponse("1"), textResponse("2"), textResponse("3"), textResponse("4")],
+    });
+    const result = await runImplementer(t.deps, {
+      ...t.input,
+      maxTurns: 2,
+      onComplete: async () => "まだ失敗",
+    });
+    expect(result.outcome).toBe("max_turns");
+    expect(t.gate.fake.requests).toHaveLength(2);
+  });
+
+  test("onComplete が投げると failed（原因を返す）", async () => {
+    const t = setup({ responses: [textResponse("できました"), textResponse("x")] });
+    const result = await runImplementer(t.deps, {
+      ...t.input,
+      onComplete: async () => {
+        throw new Error("テストのコマンドを起動できません");
+      },
+    });
+    expect(result.outcome).toBe("failed");
+    expect(result.error).toContain("テストのコマンドを起動できません");
+    expect(t.gate.fake.requests).toHaveLength(1);
+  });
+
+  test("onComplete の実行中に期限が来ると signal が中止され timeout", async () => {
+    const t = setup({ responses: [textResponse("できました"), textResponse("x")] });
+    let seen: AbortSignal | undefined;
+    const result = await runImplementer(
+      { ...t.deps, now: Date.now },
+      {
+        ...t.input,
+        deadline: Date.now() + 50,
+        onComplete: (signal) =>
+          new Promise((resolve) => {
+            seen = signal;
+            signal.addEventListener("abort", () => resolve("打ち切られたテスト"), { once: true });
+          }),
+      },
+    );
+    expect(seen?.aborted).toBe(true);
+    expect(result.outcome).toBe("timeout");
+    expect(t.gate.fake.requests).toHaveLength(1);
+  });
+
+  test("渡さなければ 004 のまま（completionChecks = 0）", async () => {
+    const t = setup({ responses: [textResponse("できました")] });
+    const result = await runImplementer(t.deps, t.input);
+    expect(result).toMatchObject({ outcome: "completed", completionChecks: 0 });
+  });
+});
+
 describe("US5 軌跡", () => {
   test("軌跡から復元した各ターンの入力が、偽の LLM が受け取った入力と一致する（圧縮ありでも）", async () => {
     const t = setup({

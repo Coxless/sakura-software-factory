@@ -1,7 +1,7 @@
 /** agent_runs（ツールを使う工程の実行1回ごとの要約）の作成と更新。004 data-model.md 1章 */
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../queue/db.ts";
-import { type AgentRunOutcome, agentRuns } from "../queue/schema.ts";
+import { type AgentRunOutcome, agentRuns, type VerdictValue } from "../queue/schema.ts";
 
 export interface AgentRunSummary {
   outcome: AgentRunOutcome;
@@ -12,6 +12,8 @@ export interface AgentRunSummary {
   compactions: number;
   steers: number;
   error?: string;
+  /** 判定（phase = judge）の合否（005） */
+  verdict?: VerdictValue;
   finishedAt: number;
 }
 
@@ -59,6 +61,7 @@ export function finishAgentRun(db: Db, id: number, summary: AgentRunSummary): vo
       compactions: summary.compactions,
       steers: summary.steers,
       error: summary.error ?? null,
+      verdict: summary.verdict ?? null,
       finished_at: summary.finishedAt,
     })
     .where(eq(agentRuns.id, id))

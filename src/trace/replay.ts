@@ -46,3 +46,24 @@ export function replayRequests(records: readonly TraceRecord[], runId: number): 
   }
   return requests;
 }
+
+export interface ReplayedCompletion {
+  systemPrompt: string;
+  messages: { role: "user" | "assistant"; text: string }[];
+}
+
+/** 1回呼び出し（plan・judge）の run の、各呼び出しの入力を復元する（005） */
+export function replayCompletion(
+  records: readonly TraceRecord[],
+  runId: number,
+): ReplayedCompletion[] {
+  const own = records.filter((r) => r.run === runId).sort((a, b) => a.seq - b.seq);
+  const calls: ReplayedCompletion[] = [];
+  const messages: ReplayedCompletion["messages"] = [];
+  for (const record of own) {
+    if (record.type !== "llm_request") continue;
+    messages.push(...record.messages);
+    calls.push({ systemPrompt: record.systemPrompt, messages: [...messages] });
+  }
+  return calls;
+}

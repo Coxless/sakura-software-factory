@@ -78,4 +78,40 @@ describe("agent_runs", () => {
     });
     close();
   });
+
+  test("判定の回は verdict を書く。省くと NULL（005）", () => {
+    const { db, jobId, close } = setup();
+    const summary = {
+      outcome: "completed" as const,
+      turns: 1,
+      requests: 1,
+      toolCalls: 0,
+      blockedCalls: 0,
+      compactions: 0,
+      steers: 0,
+      finishedAt: 2,
+    };
+    const judge = startAgentRun(db, {
+      jobId,
+      phase: "judge",
+      model: "v",
+      tracePath: "t",
+      startedAt: 1,
+    });
+    finishAgentRun(db, judge.id, { ...summary, verdict: "fail" });
+    const plan = startAgentRun(db, {
+      jobId,
+      phase: "plan",
+      model: "p",
+      tracePath: "t",
+      startedAt: 1,
+    });
+    finishAgentRun(db, plan.id, summary);
+    const rows = db.select().from(agentRuns).all();
+    expect(rows.map((row) => [row.phase, row.verdict])).toEqual([
+      ["judge", "fail"],
+      ["plan", null],
+    ]);
+    close();
+  });
 });

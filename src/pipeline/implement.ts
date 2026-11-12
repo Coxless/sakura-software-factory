@@ -50,7 +50,7 @@ export interface ImplementerInput {
   workspace: Workspace;
   /** Issue のタイトルと本文 */
   issue: string;
-  /** 計画役の出力（005）。テストと implement:dev では手書き */
+  /** 計画役の出力（005）。テストと pipeline:dev の --plan では手書き */
   plan: string;
   /** やり直しのとき（005・009）。毎回新しい会話で始める */
   feedback?: Feedback[];
@@ -60,6 +60,12 @@ export interface ImplementerInput {
   maxTurns?: number;
   /** 呼び出し側の中断 */
   signal?: AbortSignal;
+  /**
+   * 実装役が完了を告げた（ツールを呼ばず、差し込みもない）ときに呼ぶ（005 の工程内テスト）。
+   * 文字列を返すと差し込んで続ける（ターン数の上限は数え続ける）。undefined なら完了で終わる。
+   * 例外を投げると終わり方は failed（error に原因）
+   */
+  onComplete?: (signal: AbortSignal) => Promise<string | undefined>;
 }
 
 export interface ImplementerDeps {
@@ -88,6 +94,8 @@ export interface ImplementerResult {
   attempt: number;
   /** 軌跡のファイルの絶対パス */
   tracePath: string;
+  /** onComplete を呼んだ回数（005） */
+  completionChecks: number;
 }
 
 export interface ImplementerRun {
@@ -145,6 +153,8 @@ export function startImplementer(deps: ImplementerDeps, input: ImplementerInput)
   let traceError: unknown;
   let writer: TraceWriter | undefined;
   let steers = 0;
+  let completionChecks = 0;
+  let completionError: unknown;
   const pendingSteers: string[] = [];
 
   const write = (record: TraceRecordBody) => {
@@ -322,13 +332,31 @@ export function startImplementer(deps: ImplementerDeps, input: ImplementerInput)
             isError: shaped.isError,
           };
         },
-        finishTurn: ({ message, toolResults }) => {
+        finishTurn: async ({ message, toolResults }, signal) => {
           if (message.stopReason === "error" || message.stopReason === "aborted") return undefined;
           tracker.onTurnEnd();
+          let continues = toolResults.length > 0 || created.hasQueuedMessages();
+          let injected = false;
+          // 完了を告げたとき: 005 の工程内テスト。失敗なら同じ会話に差し込んで続ける（research R4）
+          if (!continues && input.onComplete) {
+            completionChecks += 1;
+            try {
+              const text = await input.onComplete(
+                signal ?? created.signal ?? new AbortController().signal,
+              );
+              if (text !== undefined && steer(text)) {
+                continues = true;
+                injected = true;
+              }
+            } catch (failure) {
+              completionError = failure;
+              return { action: "end" };
+            }
+          }
           // ツールを呼ばず、差し込みもなければ自然に終わる（完了）。上限の判定はしない
-          const continues = toolResults.length > 0 || created.hasQueuedMessages();
           if (!continues) return undefined;
-          return tracker.check() ? { action: "end" } : undefined;
+          if (tracker.check()) return { action: "end" };
+          return injected ? { action: "continue" } : undefined;
         },
       });
       agent = created;
@@ -369,6 +397,9 @@ export function startImplementer(deps: ImplementerDeps, input: ImplementerInput)
       if (traceError !== undefined) {
         outcome = "failed";
         error = `軌跡に書けませんでした: ${errorText(traceError)}`;
+      } else if (completionError !== undefined) {
+        outcome = "failed";
+        error = errorText(completionError);
       } else if (tracker.reason === "sandbox_unavailable") {
         outcome = "failed";
         error = "作業場が使えないエラーが続きました";
@@ -442,6 +473,7 @@ export function startImplementer(deps: ImplementerDeps, input: ImplementerInput)
       runId,
       attempt,
       tracePath,
+      completionChecks,
     };
   })();
 

@@ -2,6 +2,10 @@
  * テスト専用: 作業場の代わりにメモリ上のファイルで動く偽の Workspace と、偽の LLM の応答のヘルパー。
  * ツールの名前・説明・引数のスキーマは 003 の本物（createTools）からそのまま取り、検査と整形も本物を通す。
  */
+
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { FactoryConfig } from "../config.ts";
 import {
   composeGuards,
@@ -14,10 +18,18 @@ import { createCommandGuard } from "../harness/guards/commands.ts";
 import { createPathGuard } from "../harness/guards/paths.ts";
 import { createTruncateTransform, maskSecretsTransform } from "../harness/results.ts";
 import type { Workspace } from "../harness/workspace.ts";
-import type { FakeResponse, FakeToolCall } from "../llm/testing.ts";
+import {
+  createTestGateDeps,
+  type FakeResponse,
+  type FakeToolCall,
+  type TestConfigOverrides,
+} from "../llm/testing.ts";
+import { jobs } from "../queue/schema.ts";
 import type { Sandbox } from "../sandbox/docker.ts";
 import { resolveWorkspacePath } from "../sandbox/paths.ts";
 import { createTools, type FactoryTool } from "../sandbox/tools.ts";
+import type { TraceRecord } from "../trace/writer.ts";
+import type { DiffSource } from "./diff.ts";
 
 /** 偽の bash の動き。結果を返すか、待つか */
 export type FakeBashBehavior =
@@ -33,6 +45,11 @@ export interface FakeWorkspaceOptions {
   bash?: (command: string) => FakeBashBehavior;
   /** read_file / write_file / edit_file を作業場の異常（sandbox_unavailable）にする */
   sandboxDown?: boolean;
+  /**
+   * Workspace.exec（005 の工程内テスト）の応答。既定は終了コード 0・空の出力。
+   * `error` を指定すると例外（作業場が使えない）を投げる
+   */
+  exec?: (command: string) => FakeBashBehavior;
 }
 
 export interface FakeWorkspace extends Workspace {
@@ -43,6 +60,8 @@ export interface FakeWorkspace extends Workspace {
   executions: string[];
   /** bash に渡された signal（中止されたかを確かめる） */
   bashSignals: (AbortSignal | undefined)[];
+  /** Workspace.exec に渡されたコマンドと時間の上限・signal（005） */
+  execs: { command: string; timeoutMs: number; signal: AbortSignal | undefined }[];
 }
 
 const unusedSandbox: Sandbox = {
@@ -180,11 +199,40 @@ export function createFakeWorkspace(
     },
   }));
 
+  const execs: FakeWorkspace["execs"] = [];
+  const exec: Workspace["exec"] = async (command, execOptions) => {
+    execs.push({ command, timeoutMs: execOptions.timeoutMs, signal: execOptions.signal });
+    const behavior = options.exec?.(command) ?? {};
+    const started = Date.now();
+    const done = (exitCode: number, output: string, timedOut = false) => ({
+      exitCode,
+      stdout: output,
+      stderr: "",
+      timedOut,
+      durationMs: Date.now() - started,
+    });
+    if ("waitForAbort" in behavior) {
+      await sleep(60_000, execOptions.signal);
+      return done(124, "打ち切りました", true);
+    }
+    if ("waitMs" in behavior) {
+      const finished = await sleep(
+        Math.min(behavior.waitMs, execOptions.timeoutMs),
+        execOptions.signal,
+      );
+      if (!finished || behavior.waitMs > execOptions.timeoutMs) return done(124, "", true);
+    }
+    if ("error" in behavior && behavior.error) throw new Error("作業場が使えません");
+    return done(behavior.exitCode ?? 0, behavior.output ?? "");
+  };
+
   return {
     files,
     commands,
     executions,
     bashSignals,
+    execs,
+    exec,
     tools,
     guard: composeGuards(
       {
@@ -231,4 +279,104 @@ export function toolCallsResponse(
 /** テキストの応答（完了を告げる） */
 export function textResponse(text: string): FakeResponse {
   return { text, usage: { input: 100, output: 20 } };
+}
+
+/**
+ * テスト専用: 偽の作業場のファイルと初期の内容を比べる偽の DiffSource（005）。
+ * 本物の git の形には合わせない（ファイルごとの簡単な unified diff）。
+ */
+export function createFakeDiffSource(
+  workspace: { files: Map<string, string> },
+  initialFiles: Record<string, string>,
+): DiffSource {
+  return {
+    base: async () => "fake-base",
+    diff: async () => {
+      const paths = [...new Set([...Object.keys(initialFiles), ...workspace.files.keys()])].sort();
+      const parts: string[] = [];
+      let files = 0;
+      let insertions = 0;
+      let deletions = 0;
+      for (const path of paths) {
+        const before = initialFiles[path];
+        const after = workspace.files.get(path);
+        if (before === after) continue;
+        files += 1;
+        const removed = before === undefined ? [] : before.split("\n");
+        const added = after === undefined ? [] : after.split("\n");
+        deletions += removed.length;
+        insertions += added.length;
+        parts.push(
+          [
+            `diff --git a/${path} b/${path}`,
+            `--- ${before === undefined ? "/dev/null" : `a/${path}`}`,
+            `+++ ${after === undefined ? "/dev/null" : `b/${path}`}`,
+            ...removed.map((line) => `-${line}`),
+            ...added.map((line) => `+${line}`),
+          ].join("\n"),
+        );
+      }
+      return {
+        diff: parts.length === 0 ? "" : `${parts.join("\n")}\n`,
+        stat: { files, insertions, deletions },
+      };
+    },
+  };
+}
+
+/**
+ * テスト専用: 005 の工程のテストの準備（偽の LLM・:memory: の DB・ジョブの行・一時ディレクトリの軌跡）。
+ * cleanup() で一時ディレクトリを消す
+ */
+export function createPipelineTestEnv(
+  responses: FakeResponse[],
+  config: Omit<TestConfigOverrides, "storage"> = {},
+  options: { onHang?: () => void } = {},
+) {
+  const traceDir = mkdtempSync(join(tmpdir(), "pipeline-test-"));
+  const gate = createTestGateDeps({
+    responses,
+    config: { ...config, storage: { trace_dir: traceDir } },
+    onHang: options.onHang ?? (() => {}),
+  });
+  const [job] = gate.db
+    .insert(jobs)
+    .values({
+      repo: "local:demo",
+      issue_number: 0,
+      trigger_comment_id: 1,
+      requested_by: "dev",
+      instruction: "@agent",
+      created_at: 1,
+      updated_at: 1,
+    })
+    .returning()
+    .all();
+  const jobId = job?.id as number;
+  const tracePath = join(traceDir, `job-${jobId}.jsonl`);
+  const trace = (): TraceRecord[] => {
+    let text = "";
+    try {
+      text = readFileSync(tracePath, "utf8");
+    } catch {
+      return [];
+    }
+    return text
+      .split("\n")
+      .filter((line) => line !== "")
+      .map((line) => JSON.parse(line) as TraceRecord);
+  };
+  return {
+    gate,
+    jobId,
+    traceDir,
+    tracePath,
+    trace,
+    /** 偽の LLM が受け取った要求の本文（JSON 文字列。tools の有無や区切りの確認に使う） */
+    requestBodies: () => gate.fake.requests.map((request) => JSON.stringify(request.body)),
+    cleanup() {
+      gate.close();
+      rmSync(traceDir, { recursive: true, force: true });
+    },
+  };
 }
