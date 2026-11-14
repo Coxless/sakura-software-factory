@@ -69,7 +69,10 @@ const DESCRIPTIONS: Record<FailureKind, string> = {
   judge_rejected: "やり直しの上限（2 回）まで、判定に合格しませんでした",
   budget_exceeded: "リクエストの予算に達しました",
   timeout: "ジョブの時間の上限（45 分）を超えました",
-  shipping_not_available: "判定には合格しましたが、PR を作る工程はまだありません",
+  secret_detected:
+    "変更に秘密情報らしい値が見つかった（または確かめられなかった）ため、push していません",
+  unshippable_change: "CI の定義（`.github/workflows`）を変更したため、push していません",
+  ship_failed: "commit・push・PR の作成に失敗しました",
   restarted: "ファクトリーの再起動で中断しました",
   stopped: "ファクトリーの停止で中断しました",
   internal_error: "内部エラーが起きました",
@@ -120,13 +123,86 @@ describe("renderFailureReport", () => {
     const body = renderFailureReport(CONFIG, {
       jobId: 3,
       stage: "judging",
-      kind: "shipping_not_available",
+      kind: "judge_rejected",
       requests: 1,
       branch: "b",
       detail: "あ".repeat(3000),
     });
     expect(body).toContain("あ".repeat(2000));
     expect(body).not.toContain("あ".repeat(2001));
+  });
+
+  test("shipping_not_available はもうない（008 で出荷の工程に置き換えた）", () => {
+    expect(FAILURE_KINDS as readonly string[]).not.toContain("shipping_not_available");
+  });
+
+  test("push 済みなら作業ブランチの行に「push 済み」", () => {
+    const body = renderFailureReport(CONFIG, {
+      jobId: 3,
+      stage: "judging",
+      kind: "ship_failed",
+      requests: 1,
+      branch: "agent/issue-7-job-3",
+      pushed: true,
+    });
+    expect(body).toContain("| 作業ブランチ | `agent/issue-7-job-3`（push 済み） |");
+  });
+
+  test("secret_detected は見つかったファイル・行・規則を 20 件まで並べ、値を書かない", () => {
+    const findings = Array.from({ length: 25 }, (_, i) => ({
+      file: `src/f${i}.ts`,
+      line: i + 1,
+      rule: "github-pat",
+    }));
+    const body = renderFailureReport(CONFIG, {
+      jobId: 3,
+      stage: "judging",
+      kind: "secret_detected",
+      requests: 1,
+      branch: "b",
+      conditions: [
+        { name: "verdict", met: true, value: "pass" },
+        { name: "secrets", met: false, value: { status: "found", findings } },
+      ],
+    });
+    expect(body).toContain("- `src/f0.ts`:1（github-pat）");
+    expect(body).toContain("- `src/f19.ts`:20（github-pat）");
+    expect(body).not.toContain("src/f20.ts");
+    expect(body).toContain("ほか 5 件");
+  });
+
+  test("スキャンできなかったときは理由を書く", () => {
+    const body = renderFailureReport(CONFIG, {
+      jobId: 3,
+      stage: "judging",
+      kind: "secret_detected",
+      requests: 1,
+      branch: "b",
+      conditions: [
+        { name: "secrets", met: false, value: { status: "unavailable", error: "gitleaks がない" } },
+      ],
+    });
+    expect(body).toContain("秘密情報のスキャンを実行できませんでした: gitleaks がない");
+  });
+
+  test("unshippable_change は当たったパスを並べる", () => {
+    const body = renderFailureReport(CONFIG, {
+      jobId: 3,
+      stage: "judging",
+      kind: "unshippable_change",
+      requests: 1,
+      branch: "b",
+      conditions: [
+        {
+          name: "forbidden_paths",
+          met: false,
+          value: {
+            matched: [{ path: ".github/workflows/ci.yml", pattern: ".github/workflows/**" }],
+          },
+        },
+      ],
+    });
+    expect(body).toContain("- `.github/workflows/ci.yml`");
   });
 });
 
@@ -214,7 +290,7 @@ describe("failJob", () => {
   test("渡したジョブの状態が古くても、DB の今の状態から failed にする", async () => {
     const { db, deps, github, job } = setup("planning");
     db.update(jobs).set({ status: "judging" }).run();
-    await failJob(deps, job, "shipping_not_available", "合格");
+    await failJob(deps, job, "ship_failed", "push できない");
     expect(db.select().from(jobs).get()?.status).toBe("failed");
     expect(github.comments[0]?.body).toContain("| 止まった工程 | judging |");
   });

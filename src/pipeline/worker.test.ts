@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Writable } from "node:stream";
@@ -309,7 +316,6 @@ describe("Worker: onPhase と状態", () => {
 
 describe("classifyOutcome", () => {
   test.each([
-    ["passed", "shipping_not_available"],
     ["rejected", "judge_rejected"],
     ["failed", "pipeline_failed"],
     ["budget_exceeded", "budget_exceeded"],
@@ -319,10 +325,7 @@ describe("classifyOutcome", () => {
     expect(classifyOutcome(result(outcome, { verdict: verdict() })).kind).toBe(kind);
   });
 
-  test("詳細: passed は判定の理由、rejected は reason、failed は error", () => {
-    expect(classifyOutcome(result("passed", { verdict: verdict() })).detail).toBe(
-      "受け入れ条件をすべて満たす",
-    );
+  test("詳細: rejected は reason、failed は error", () => {
     expect(classifyOutcome(result("rejected", { reason: "テストが通らない" })).detail).toBe(
       "テストが通らない",
     );
@@ -334,7 +337,6 @@ describe("classifyOutcome", () => {
 
 describe("Worker: 結果の報告", () => {
   test.each([
-    ["passed", "shipping_not_available", "受け入れ条件をすべて満たす"],
     ["rejected", "judge_rejected", "最後の理由"],
     ["failed", "pipeline_failed", "作業場を作れません"],
     ["budget_exceeded", "budget_exceeded", "予算切れ"],
@@ -483,20 +485,60 @@ describe("Worker: 片付けとトークン", () => {
   });
 });
 
-describe("recoverOnStartup と stop（US5）", () => {
-  test("planning〜judging を failed（restarted）にして各1回報告し、queued・pr_opened には触らない", async () => {
-    const s = await setup();
-    const ids = ["queued", "planning", "implementing", "testing", "judging", "pr_opened"].map(
-      (status, i) => {
-        const job = s.enqueue(i + 1);
-        s.db
-          .update(jobs)
-          .set({ status: status as Job["status"] })
-          .where(eq(jobs.id, job.id))
-          .run();
-        return job.id;
+describe("Worker: 出荷（008）", () => {
+  test("合格したら出荷に進み、ci_waiting で終え、作業ディレクトリを片付けて次のジョブを取り出す", async () => {
+    const s = await setup({
+      pipeline: async (input) => {
+        // 本物の 005 と同じく、工程の境目で onPhase を呼ぶ
+        for (const phase of ["implementing", "testing", "judging"] as const)
+          input.onPhase?.(phase, 1);
+        writeFileSync(join(input.workdir, "README.md"), `# demo\n\n${input.jobId}\n`);
+        return result("passed", {
+          verdict: verdict(),
+          plan: {
+            summary: "README を直す",
+            steps: ["直す"],
+            acceptance_criteria: ["直っている"],
+            work_type: "docs",
+          },
+        });
       },
-    );
+    });
+    const first = s.enqueue(1);
+    const second = s.enqueue(2);
+    s.start();
+    await waitFor(() => s.jobOf(second.id).status === "ci_waiting", 30_000);
+    expect(s.jobOf(first.id)).toMatchObject({ status: "ci_waiting", pr_number: 1 });
+    expect(s.jobOf(second.id)).toMatchObject({ status: "ci_waiting", pr_number: 2 });
+    expect(s.github.pullRequests.map((p) => p.autoMerge)).toEqual([true, true]);
+    expect(s.github.comments.map((c) => c.body)).toEqual([
+      expect.stringContaining("/pull/1"),
+      expect.stringContaining("/pull/2"),
+    ]);
+    await waitFor(() => readdirSync(s.workDir).length === 0);
+  }, 60_000);
+});
+
+describe("recoverOnStartup と stop（US5）", () => {
+  test("planning〜judging を failed（restarted）にして各1回報告し、queued・pr_opened・ci_waiting には触らない", async () => {
+    const s = await setup();
+    const ids = [
+      "queued",
+      "planning",
+      "implementing",
+      "testing",
+      "judging",
+      "pr_opened",
+      "ci_waiting",
+    ].map((status, i) => {
+      const job = s.enqueue(i + 1);
+      s.db
+        .update(jobs)
+        .set({ status: status as Job["status"] })
+        .where(eq(jobs.id, job.id))
+        .run();
+      return job.id;
+    });
     mkdirSync(join(s.workDir, "job-99", "repo"), { recursive: true });
     mkdirSync(join(s.workDir, "keep-me"), { recursive: true });
 
@@ -509,6 +551,7 @@ describe("recoverOnStartup と stop（US5）", () => {
       "failed",
       "failed",
       "pr_opened",
+      "ci_waiting",
     ]);
     expect(s.github.comments).toHaveLength(4);
     for (const id of ids.slice(1, 5)) {

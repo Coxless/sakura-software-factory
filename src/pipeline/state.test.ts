@@ -2,7 +2,13 @@ import { eq } from "drizzle-orm";
 import { describe, expect, test } from "vitest";
 import { JOB_STATUSES, type JobStatus, jobEvents, jobs } from "../queue/schema.ts";
 import { migratedMemoryDb } from "../queue/testing.ts";
-import { canTransition, StateTransitionError, TRANSITIONS, transition } from "./state.ts";
+import {
+  canTransition,
+  StateTransitionError,
+  TRANSITIONS,
+  transition,
+  transitionPath,
+} from "./state.ts";
 
 /** data-model.md の遷移の表（failed へはここに書かず、下で別に扱う） */
 const EXPECTED: Record<JobStatus, readonly JobStatus[]> = {
@@ -128,6 +134,53 @@ describe("transition", () => {
   test("ないジョブは StateTransitionError", () => {
     const { db, close } = migratedMemoryDb();
     expect(() => transition(db, 999, "queued", "planning", 10)).toThrow(StateTransitionError);
+    close();
+  });
+});
+
+describe("transitionPath（008）", () => {
+  test("judging → pr_opened → ci_waiting を1回で進め、記録を2件残し、fields は最後に書く", () => {
+    const { db, close } = migratedMemoryDb();
+    const job = insertJob(db, "judging");
+    const updated = transitionPath(
+      db,
+      job.id,
+      ["judging", "pr_opened", "ci_waiting"],
+      10,
+      { pr: 5 },
+      {
+        pr_number: 5,
+      },
+    );
+    expect(updated.status).toBe("ci_waiting");
+    expect(updated.pr_number).toBe(5);
+    expect(updated.finished_at).toBeNull();
+    const events = db.select().from(jobEvents).all();
+    expect(events.map((e) => [e.from_status, e.to_status])).toEqual([
+      ["judging", "pr_opened"],
+      ["pr_opened", "ci_waiting"],
+    ]);
+    close();
+  });
+
+  test("途中に表にない遷移があれば何も変えない", () => {
+    const { db, close } = migratedMemoryDb();
+    const job = insertJob(db, "judging");
+    expect(() => transitionPath(db, job.id, ["judging", "pr_opened", "merged"], 10)).toThrow(
+      StateTransitionError,
+    );
+    expect(db.select().from(jobs).get()?.status).toBe("judging");
+    expect(db.select().from(jobEvents).all()).toEqual([]);
+    close();
+  });
+
+  test("現在の状態が最初の状態でなければ何も変えない", () => {
+    const { db, close } = migratedMemoryDb();
+    const job = insertJob(db, "failed");
+    expect(() => transitionPath(db, job.id, ["judging", "pr_opened", "ci_waiting"], 10)).toThrow(
+      StateTransitionError,
+    );
+    expect(db.select().from(jobEvents).all()).toEqual([]);
     close();
   });
 });

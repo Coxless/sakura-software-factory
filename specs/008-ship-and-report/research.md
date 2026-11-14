@@ -44,15 +44,18 @@
 | `--log-opts="HEAD..HEAD"`（範囲が空） | `0 commits scanned`、終了コード 0 |
 | 壊れた設定ファイル | `FTL unable to load gitleaks config`、終了コード 1 |
 | 正しい範囲で秘密情報あり（`--exit-code 3`） | `1 commits scanned`、`leaks found: 1`、終了コード 3 |
+| 作業ツリーに `.gitleaksignore`（`leak.js:github-pat:1`）があり、`--gitleaks-ignore-path` は空のディレクトリ | 報告されない（`no leaks found`、終了コード 0）。**`--gitleaks-ignore-path` を渡しても、走査するディレクトリ直下の `.gitleaksignore` を読む**（実装のときに分かった） |
+| 同じ commit を `git clone --bare --no-local` した複製を走査（作業ディレクトリが `--depth 1` の浅い clone でも） | `1 commits scanned`、`leaks found: 1`、終了コード 3 |
 
 - **決定**: 次の形で呼ぶ
 
   ```
   gitleaks git --no-banner --no-color --redact --exit-code 3
     --config <一時ファイル> --gitleaks-ignore-path <一時ディレクトリ>
-    --log-opts "<基準>..HEAD" --report-format json --report-path <一時ファイル> <作業ディレクトリ>
+    --log-opts "<基準>..<head>" --report-format json --report-path <一時ファイル> <bare の複製>
   ```
 
+  - 走査するのは作業ディレクトリそのものではなく、`git clone --quiet --bare --no-local <作業ディレクトリ> <一時ディレクトリ>` で作った bare の複製（作業ツリーがないので、エージェントが足した `.gitleaksignore` が読まれない）
   - 設定は**基準のコミットの** `.gitleaks.toml`（`git show <基準>:.gitleaks.toml`）を一時ファイルに書いて渡す。基準になければ `[extend] useDefault = true` だけの設定。`.gitleaksignore` も基準のコミットのものを一時ディレクトリに置く（なければ空のディレクトリ）。こうすると、エージェントが同じ変更で足した許可は効かない。対象リポジトリが元から持つ許可（テスト用の偽の値など）には従う（spec の Edge Cases）
   - 結果の判定: 終了コード 3 → 見つかった（報告の JSON から `File`・`StartLine`・`RuleID` だけを取る。`--redact` で `Secret` は伏せ字）。終了コード 0 **かつ**標準エラーに `1 commits scanned` がある **かつ** `ERR`・`FTL` の行がない → 見つからない。それ以外（終了コード 1、起動できない、時間切れ、走査した commit が1でない）→ スキャンできなかった
   - `gitleaks:allow`: commit の diff の追加行（`+` で始まる行）に `gitleaks:allow` を含むものがあれば、見つかったものとして扱う（規則の名前は `gitleaks-allow-comment`）。インラインの許可を無効にするフラグはないので、自分で確かめる

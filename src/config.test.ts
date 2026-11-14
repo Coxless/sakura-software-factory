@@ -413,6 +413,35 @@ describe("parseConfig: [pipeline]（005）", () => {
   });
 });
 
+describe("parseConfig: 自動マージの条件（008）", () => {
+  test("省略すると skip_label と既定の禁止パスが入る", () => {
+    const config = parseConfig(MINIMAL, BASE_DIR);
+    expect(config.auto_merge.skip_label).toBe("no-auto-merge");
+    expect(config.auto_merge.forbidden_paths).toEqual(
+      expect.arrayContaining([".github/workflows/**", ".gitleaks.toml", ".gitleaksignore"]),
+    );
+  });
+
+  test("skip_label は空でない 50 文字以下", () => {
+    expect(
+      parseConfig(`${MINIMAL}\n[auto_merge]\nskip_label = "hold"\n`, BASE_DIR).auto_merge
+        .skip_label,
+    ).toBe("hold");
+    expect(issuesOf(`${MINIMAL}\n[auto_merge]\nskip_label = ""\n`)).toEqual([
+      { path: "/auto_merge/skip_label", message: expect.any(String) },
+    ]);
+    expect(issuesOf(`${MINIMAL}\n[auto_merge]\nskip_label = "${"a".repeat(51)}"\n`)).toEqual([
+      { path: "/auto_merge/skip_label", message: expect.any(String) },
+    ]);
+  });
+
+  test("max_diff_lines は 1 以上", () => {
+    expect(issuesOf(`${MINIMAL}\n[auto_merge]\nmax_diff_lines = 0\n`)).toEqual([
+      { path: "/auto_merge/max_diff_lines", message: expect.any(String) },
+    ]);
+  });
+});
+
 describe("parseConfig: 受付と Worker（007）", () => {
   test("省略すると既定値が入り、work_dir は設定ファイルの場所が基準", () => {
     const config = parseConfig(MINIMAL, BASE_DIR);

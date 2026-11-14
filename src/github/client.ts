@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { App } from "octokit";
-import { type GitHubPort, REPO_PERMISSIONS, type RepoPermission } from "./port.ts";
+import {
+  type BotIdentity,
+  DraftUnavailableError,
+  type GitHubPort,
+  REPO_PERMISSIONS,
+  type RepoPermission,
+} from "./port.ts";
 
 /**
  * 本物の GitHubPort（octokit の App）。GitHub を呼ぶので単体テストは書かず、振る舞いは testing.ts の
@@ -9,10 +15,12 @@ import { type GitHubPort, REPO_PERMISSIONS, type RepoPermission } from "./port.t
  * - インストールは repo から引き（GET /repos/{owner}/{repo}/installation）、プロセスの中で覚える。
  *   App が入っていなければ例外（受付では「権限を確かめられない」= 500）
  * - インストールトークン（1時間で切れる）の発行と更新は octokit に任せ、保存しない
+ * - auto-merge の有効化と Draft への変更は REST にないので GraphQL（008 research R6）
  */
 export function createGitHubClient(options: { appId: string; privateKey: string }): GitHubPort {
   const app = new App({ appId: options.appId, privateKey: options.privateKey });
   const installations = new Map<string, number>();
+  let bot: BotIdentity | undefined;
 
   const split = (repo: string) => {
     const [owner, name] = repo.split("/");
@@ -78,7 +86,67 @@ export function createGitHubClient(options: { appId: string; privateKey: string 
         ...split(repo),
         issue_number: issueNumber,
       });
-      return { title: data.title, body: data.body ?? "" };
+      const labels = data.labels
+        .map((label) => (typeof label === "string" ? label : (label.name ?? "")))
+        .filter((name) => name !== "");
+      return { title: data.title, body: data.body ?? "", labels };
+    },
+
+    async getBotIdentity() {
+      if (bot) return bot;
+      // App の JWT で自分の slug を引き、ボットのアカウントの ID から noreply のアドレスを作る
+      const { data: me } = await app.octokit.request("GET /app");
+      if (!me?.slug) throw new Error("GitHub App の slug を取得できません");
+      const login = `${me.slug}[bot]`;
+      const { data: user } = await app.octokit.request("GET /users/{username}", {
+        username: login,
+      });
+      bot = { name: login, email: `${user.id}+${login}@users.noreply.github.com` };
+      return bot;
+    },
+
+    async createPullRequest({ repo, head, base, title, body, draft }) {
+      const octokit = await installationOctokit(repo);
+      try {
+        const { data } = await octokit.request("POST /repos/{owner}/{repo}/pulls", {
+          ...split(repo),
+          head,
+          base,
+          title,
+          body,
+          draft,
+        });
+        return { number: data.number, url: data.html_url, nodeId: data.node_id };
+      } catch (error) {
+        const status = (error as { status?: number }).status;
+        const message = error instanceof Error ? error.message : String(error);
+        if (draft && status === 422 && /draft/i.test(message)) {
+          throw new DraftUnavailableError(message);
+        }
+        throw error;
+      }
+    },
+
+    async enableAutoMerge({ repo, nodeId }) {
+      const octokit = await installationOctokit(repo);
+      await octokit.graphql(
+        `mutation($id: ID!) {
+          enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: SQUASH }) {
+            clientMutationId
+          }
+        }`,
+        { id: nodeId },
+      );
+    },
+
+    async convertToDraft({ repo, nodeId }) {
+      const octokit = await installationOctokit(repo);
+      await octokit.graphql(
+        `mutation($id: ID!) {
+          convertPullRequestToDraft(input: { pullRequestId: $id }) { clientMutationId }
+        }`,
+        { id: nodeId },
+      );
     },
   };
 }
