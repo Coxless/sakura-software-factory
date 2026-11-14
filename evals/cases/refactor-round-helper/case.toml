@@ -1,0 +1,7 @@
+work_type = "refactor"
+project = "projects/inventory"
+check_commands = ['node --test "test/**/*.test.ts"', "node scripts/lint.ts"]
+
+[grader]
+commands = ["node --test .eval/round-helper.test.ts"]
+timeout_seconds = 300

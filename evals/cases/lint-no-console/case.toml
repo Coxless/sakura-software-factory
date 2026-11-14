@@ -1,0 +1,8 @@
+work_type = "chore"
+project = "projects/inventory"
+check_commands = ['node --test "test/**/*.test.ts"', "node scripts/lint.ts"]
+
+[grader]
+# hidden/scripts/lint.ts で lint のスクリプトを元に戻してから実行する（規則を弱めて通すのを防ぐ）
+commands = ["node scripts/lint.ts", "node --test .eval/stock-behavior.test.ts"]
+timeout_seconds = 300
