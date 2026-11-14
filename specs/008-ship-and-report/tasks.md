@@ -95,8 +95,8 @@ description: "Task list for 008 ship-and-report"
 
 **Independent Test**: 条件の組み合わせを変えて、PR の本文と Issue のコメントの文面を確かめる
 
-- [ ] T016 [P] [US3] `src/pipeline/report.test.ts` に `renderShipReport`・`renderShipNotice` のテストを足す（contracts/report.md）: 6条件の表（✅／❌ と値）、振り分けの文（`auto_merge`・`draft`・`unsettled`、`draft_unavailable`・`auto_merge_failed` の追記）、`Refs #<issue>` があり閉じるキーワードがない、計画・受け入れ条件・工程内テスト・判定・やり直し・消費したリクエスト・変更の行、ファイルの一覧が 50 件で「ほか <n> 件」、判定の理由が 2000 文字で切り詰め、本文全体が 60000 文字以下、秘密情報らしい文字列が伏せ字（`maskWith` を通した結果で確かめる）、PR の題が計画の概要の1行目を 72 文字で切り詰めたもの・計画がなければ `Issue #<番号> への対応`
-- [ ] T017 [US3] `src/pipeline/report.ts` に `renderShipReport`・`renderShipNotice`・`pullRequestTitle` を作り（T016 を通す）、`src/pipeline/ship.ts` の PR の本文と Issue のコメントをこれに替える。T012 のテストに PR の本文・Issue のコメントの文面の確認を足す
+- [X] T016 [P] [US3] `src/pipeline/report.test.ts` に `renderShipReport`・`renderShipNotice` のテストを足す（contracts/report.md）: 6条件の表（✅／❌ と値）、振り分けの文（`auto_merge`・`draft`・`unsettled`、`draft_unavailable`・`auto_merge_failed` の追記）、`Refs #<issue>` があり閉じるキーワードがない、計画・受け入れ条件・工程内テスト・判定・やり直し・消費したリクエスト・変更の行、ファイルの一覧が 50 件で「ほか <n> 件」、判定の理由が 2000 文字で切り詰め、本文全体が 60000 文字以下、秘密情報らしい文字列が伏せ字（`maskWith` を通した結果で確かめる）、PR の題が計画の概要の1行目を 72 文字で切り詰めたもの・計画がなければ `Issue #<番号> への対応`
+- [X] T017 [US3] `src/pipeline/report.ts` に `renderShipReport`・`renderShipNotice`・`pullRequestTitle` を作り（T016 を通す）、`src/pipeline/ship.ts` の PR の本文と Issue のコメントをこれに替える。T012 のテストに PR の本文・Issue のコメントの文面の確認を足す
 
 **Checkpoint**: 出荷した PR の本文に6条件と振り分けの理由がある（SC-003）
 
@@ -108,15 +108,15 @@ description: "Task list for 008 ship-and-report"
 
 **Independent Test**: 設定を変えて同じ変更の振り分けが変わることを確かめる
 
-- [ ] T018 [US4] `src/pipeline/ship.test.ts` に設定の効き目のテストを足す: `max_diff_lines = 10` で 20 行の変更が Draft、`allowed_work_types` に `feature` を足すと `feature` で auto-merge、`skip_label` を別の名前にするとそのラベルで Draft。`src/config.test.ts` で、知らない作業の種類・`max_diff_lines = 0`・空の `skip_label` が項目の名前を含むエラーになることを確かめる（001 の既存のテストで足りていればそれを確かめるだけ）
+- [X] T018 [US4] `src/pipeline/ship.test.ts` に設定の効き目のテストを足す: `max_diff_lines = 10` で 20 行の変更が Draft、`allowed_work_types` に `feature` を足すと `feature` で auto-merge、`skip_label` を別の名前にするとそのラベルで Draft。`src/config.test.ts` で、知らない作業の種類・`max_diff_lines = 0`・空の `skip_label` が項目の名前を含むエラーになることを確かめる（001 の既存のテストで足りていればそれを確かめるだけ）
 
 ---
 
 ## Phase 7: Polish & Cross-Cutting
 
-- [ ] T019 [P] `src/ship-dev.test.ts` を書き、`src/ship-dev.ts` と `package.json` の `ship:dev` を作る（contracts/ship-dev.md）: 引数の検証（`--repo` の形、`--issue` が正の整数、`--patch` のファイルがある、`--work-type` が `WORK_TYPES`、`--db` の既定は一時ディレクトリ）と終了コード（0・1・2）。テストでは GitHub 層と clone を差し替えてローカルの bare リポジトリで `shipJob` まで通す。LLM の設定（APIキー）を要求しない
-- [ ] T020 [P] 設計ドキュメントと constitution を直す（plan.md の「設計ドキュメントとの差分」）: `docs/design/03_アーキテクチャと技術スタック.md` の 3章・4章 #7・#11・8章、`docs/design/04_ガードレールとハーネス設計.md` の 2章 層6・実装メモ。`.specify/memory/constitution.md` の原則 VI に「秘密情報が見つかった（確かめられない）変更と、App の権限で push できない変更（`.github/workflows`）は、Draft にもせず push しないで失敗として報告する」を足し、v1.3.2（PATCH、文言の明確化）に上げて Sync Impact Report を更新する（analyze D1）
-- [ ] T021 [P] `specs/007-github-intake/` の `shipping_not_available` の記述（data-model.md・contracts/report.md・research.md R2）に「008 で出荷の工程に置き換えた」と書き足す（007 の決定を消さず、008 へのリンクを足す）
+- [X] T019 [P] `src/ship-dev.test.ts` を書き、`src/ship-dev.ts` と `package.json` の `ship:dev` を作る（contracts/ship-dev.md）: 引数の検証（`--repo` の形、`--issue` が正の整数、`--patch` のファイルがある、`--work-type` が `WORK_TYPES`、`--db` の既定は一時ディレクトリ）と終了コード（0・1・2）。テストでは GitHub 層と clone を差し替えてローカルの bare リポジトリで `shipJob` まで通す。LLM の設定（APIキー）を要求しない
+- [X] T020 [P] 設計ドキュメントと constitution を直す（plan.md の「設計ドキュメントとの差分」）: `docs/design/03_アーキテクチャと技術スタック.md` の 3章・4章 #7・#11・8章、`docs/design/04_ガードレールとハーネス設計.md` の 2章 層6・実装メモ。`.specify/memory/constitution.md` の原則 VI に「秘密情報が見つかった（確かめられない）変更と、App の権限で push できない変更（`.github/workflows`）は、Draft にもせず push しないで失敗として報告する」を足し、v1.3.2（PATCH、文言の明確化）に上げて Sync Impact Report を更新する（analyze D1）
+- [X] T021 [P] `specs/007-github-intake/` の `shipping_not_available` の記述（data-model.md・contracts/report.md・research.md R2）に「008 で出荷の工程に置き換えた」と書き足す（007 の決定を消さず、008 へのリンクを足す）
 - [ ] T022 `pnpm run check`・`pnpm run secrets:scan`・`pnpm run deploy:lint` を通す。`factory.toml` の変更で `pnpm run deploy:rehearsal` の設定の検証（9b・9c など）が壊れていないことを確かめる
 - [ ] T023 quickstart.md の2章（`ship:dev` で本物の GitHub）を実行し、結果と、判定の合格から PR ができるまでの所要時間（SC-005、1 分以内）を journal に書く（`factory-sandbox` の CI・ブランチ保護・auto-merge の許可は運用者の作業。用意できていなければ、できた項目だけを行い、残りを journal に書く）
 

@@ -26,7 +26,7 @@
 | `judge_rejected` | やり直しの上限（<judge_retries> 回）まで、判定に合格しませんでした |
 | `budget_exceeded` | リクエストの予算に達しました |
 | `timeout` | ジョブの時間の上限（<job_timeout_minutes> 分）を超えました |
-| `shipping_not_available` | 判定には合格しましたが、PR を作る工程はまだありません |
+| `shipping_not_available` | 判定には合格しましたが、PR を作る工程はまだありません（008 で消した。008 の [report.md](../../008-ship-and-report/contracts/report.md)） |
 | `restarted` | ファクトリーの再起動で中断しました |
 | `stopped` | ファクトリーの停止で中断しました |
 | `internal_error` | 内部エラーが起きました |

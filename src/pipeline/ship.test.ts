@@ -421,3 +421,41 @@ describe("shipJob: 失敗と中断", () => {
     expect(s.github.comments[0]?.body).not.toContain(TOKEN);
   });
 });
+
+describe("shipJob: 自動マージの条件の設定（US4）", () => {
+  const twentyLines = Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n");
+
+  test("max_diff_lines = 10 なら 20 行の変更は Draft", async () => {
+    const s = await setup({
+      configExtra: "[auto_merge]\nmax_diff_lines = 10\n",
+      files: { "notes.md": `${twentyLines}\n` },
+    });
+    const out = await shipJob(s.deps, s.input());
+    expect(out).toMatchObject({ decision: "draft" });
+    expect(s.notes("shipped")[0]).toMatchObject({ unmet: ["diff_size"] });
+  });
+
+  test("allowed_work_types に feature を足せば feature でも auto-merge", async () => {
+    const s = await setup({
+      configExtra: '[auto_merge]\nallowed_work_types = ["docs", "feature"]\n',
+    });
+    const result = passed();
+    if (result.plan) result.plan.work_type = "feature";
+    const out = await shipJob(s.deps, s.input({ result }));
+    expect(out).toMatchObject({ decision: "auto_merge" });
+  });
+
+  test("skip_label を変えれば、そのラベルで Draft になり no-auto-merge では止まらない", async () => {
+    const s = await setup({
+      configExtra: '[auto_merge]\nskip_label = "hold"\n',
+      github: { issue: { title: "t", body: "b", labels: ["no-auto-merge"] } },
+    });
+    expect(await shipJob(s.deps, s.input())).toMatchObject({ decision: "auto_merge" });
+
+    const t = await setup({
+      configExtra: '[auto_merge]\nskip_label = "hold"\n',
+      github: { issue: { title: "t", body: "b", labels: ["Hold"] } },
+    });
+    expect(await shipJob(t.deps, t.input())).toMatchObject({ decision: "draft" });
+  });
+});

@@ -48,7 +48,7 @@
 | `judge_rejected` | 005 の工程が `rejected` を返した（やり直しの上限まで判定に合格しない） |
 | `budget_exceeded` | 工程の途中で予算が尽きた |
 | `timeout` | ジョブ全体の期限（準備中、または 005 の `timeout`） |
-| `shipping_not_available` | 判定に合格したが、出荷の工程（008）がまだない |
+| `shipping_not_available` | 判定に合格したが、出荷の工程（008）がまだない（008 で出荷の工程〔[008 の data-model.md](../008-ship-and-report/data-model.md)〕に置き換えた。この分類はもうない） |
 | `restarted` | 再起動で中断 |
 | `stopped` | 停止の合図で中断（005 の `aborted` を含む） |
 | `internal_error` | 想定外の例外 |

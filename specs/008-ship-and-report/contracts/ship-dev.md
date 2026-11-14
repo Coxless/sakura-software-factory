@@ -18,7 +18,8 @@ pnpm run ship:dev -- --repo Coxless/factory-sandbox --issue 1 --patch ./change.d
 
 - 環境変数: `FACTORY_CONFIG`（設定）、`GITHUB_APP_ID`・`GITHUB_APP_PRIVATE_KEY_PATH`（App）。`GITHUB_WEBHOOK_SECRET` と LLM の APIキーは要らない
 - 流れ: データベースにジョブを1件作る（`trigger_comment_id` は実行した時刻）→ `judging` まで進める → 007 の `cloneForJob` で取得 → パッチを当てる → 偽の 005 の結果（`outcome: "passed"`、判定の理由は「ship:dev による確認」、`requests: 0`）を作る → `shipJob` を呼ぶ
-- 出力（標準出力）: `PR: <url>`、`decision: <auto_merge|draft|unsettled>`、満たさなかった条件。失敗なら分類と理由
+- 出力（標準出力）: `PR: <url>`、`decision: <auto_merge|draft|unsettled>`、`status: <ジョブの状態>`。失敗なら `failed: <分類>` と `reason: <理由>`。満たさなかった条件は PR の本文と記録を見る
 - 終了コード: 0 出荷した、1 出荷前・出荷中に失敗した（Issue に失敗の報告が付く）、2 引数・設定の誤り
+- 作業ブランチは `agent/issue-<issue>-job-<id>-ship-dev-<時刻>`（一時のデータベースではジョブの番号が毎回 1 から始まるので、時刻を足して前の実行のブランチと重ならないようにする）
 - 作業ディレクトリは一時ディレクトリに作り、終わったら消す
 - 本物の GitHub に PR とコメントを作るので、テスト用のリポジトリにだけ使う
