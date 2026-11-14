@@ -46,6 +46,23 @@ export interface GitHubPort {
    * それ以外・取れないときはチェックの output の文。何もない・失敗なら undefined（例外にしない）
    */
   getCheckRunLog(req: { repo: string; check: CheckRunInfo }): Promise<string | undefined>;
+  /** マージ commit が sha の、マージ済みの PR の番号。なければ undefined。失敗は例外（010 research R3） */
+  findMergedPullRequest(req: { repo: string; sha: string }): Promise<number | undefined>;
+  /** 既定のブランチの名前と先頭の commit。失敗は例外（010 research R9） */
+  getDefaultBranchHead(req: { repo: string }): Promise<{ branch: string; sha: string }>;
+}
+
+/** Webhook から取り出した push の知らせ（010） */
+export interface PushEvent {
+  /** owner/name */
+  repo: string;
+  /** refs/heads/main など */
+  ref: string;
+  defaultBranch: string;
+  /** 0 だけならブランチの作成 */
+  before: string;
+  after: string;
+  deleted: boolean;
 }
 
 /** PR の状態（009） */

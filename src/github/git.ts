@@ -327,3 +327,147 @@ export async function pushBranch(req: {
     throw new ShipGitError(access.mask(`${req.branch} を push できません: ${errorText(error)}`));
   }
 }
+
+// ---- 010: ステージングのための取得と revert（research R4・R8） ----
+
+/**
+ * sha の commit のファイルを dir に取り出す（.git を残さない）。dir は空か存在しないこと。
+ * トークンは fetch の子プロセスの環境変数でだけ渡す。失敗は CloneError（トークンは伏せ済み）
+ */
+export async function fetchCommit(req: {
+  repo: string;
+  token: string;
+  sha: string;
+  dir: string;
+  signal?: AbortSignal;
+  /** 既定は https://github.com。テストでは file:// */
+  baseUrl?: string;
+  run?: GitRunner;
+}): Promise<void> {
+  const run = req.run ?? defaultRunner;
+  const access = tokenAccess(req.token);
+  const url = `${req.baseUrl ?? "https://github.com"}/${req.repo}.git`;
+  const signal = req.signal ? { signal: req.signal } : {};
+  try {
+    if (req.signal?.aborted) throw req.signal.reason ?? new Error("中断しました");
+    mkdirSync(req.dir, { recursive: true });
+    await withSafeEnv(async (env) => {
+      const git = (...args: string[]) =>
+        run(["-C", req.dir, ...SAFE_CONFIG, ...args], { env, ...signal });
+      await git("init", "--quiet");
+      await run(["-C", req.dir, ...SAFE_CONFIG, "fetch", "--quiet", "--depth", "1", url, req.sha], {
+        env: { ...env, ...access.env },
+        ...signal,
+      });
+      await git("checkout", "--quiet", "--detach", "FETCH_HEAD");
+      const head = (await git("rev-parse", "HEAD")).stdout.trim();
+      if (head !== req.sha) throw new Error(`取り出した commit が違います: ${head}`);
+    });
+    rmSync(join(req.dir, ".git"), { recursive: true, force: true });
+  } catch (error) {
+    throw new CloneError(
+      access.mask(`${req.repo} の ${req.sha.slice(0, 12)} を取得できません: ${errorText(error)}`),
+    );
+  }
+}
+
+export type RevertSkipReason = "no_range" | "not_ancestor" | "not_in_branch" | "conflict" | "empty";
+
+export type RevertResult =
+  | { kind: "created"; branch: string; head: string }
+  | { kind: "skipped"; reason: RevertSkipReason; detail?: string };
+
+/**
+ * 既定のブランチの先頭に before..after を打ち消す1つの commit を作り、branch に push する（強制しない。research R8）。
+ * 作らないときは skipped。取得の失敗は CloneError、commit・push の失敗は ShipGitError（トークンは伏せ済み）
+ */
+export async function revertRange(req: {
+  repo: string;
+  token: string;
+  defaultBranch: string;
+  before: string | null;
+  after: string;
+  branch: string;
+  message: string;
+  author: { name: string; email: string };
+  /** 空か存在しないディレクトリ */
+  dir: string;
+  signal?: AbortSignal;
+  baseUrl?: string;
+  run?: GitRunner;
+}): Promise<RevertResult> {
+  if (req.before === null || /^0+$/.test(req.before))
+    return { kind: "skipped", reason: "no_range" };
+  const run = req.run ?? defaultRunner;
+  const signal = req.signal ? { signal: req.signal } : {};
+  const access = tokenAccess(req.token);
+  const url = `${req.baseUrl ?? "https://github.com"}/${req.repo}.git`;
+
+  try {
+    if (req.signal?.aborted) throw req.signal.reason ?? new Error("中断しました");
+    mkdirSync(dirname(req.dir), { recursive: true });
+    await run(
+      ["clone", "--quiet", "--single-branch", "--branch", req.defaultBranch, url, req.dir],
+      { env: { ...baseEnv(), ...access.env }, ...signal },
+    );
+  } catch (error) {
+    throw new CloneError(access.mask(`${req.repo} を取得できません: ${errorText(error)}`));
+  }
+
+  const outcome = await withSafeEnv(async (env): Promise<RevertResult | undefined> => {
+    const git = (...args: string[]) =>
+      run(["-C", req.dir, ...SAFE_CONFIG, ...args], { env, ...signal });
+    const ok = async (...args: string[]) => {
+      try {
+        await git(...args);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    if (!(await ok("cat-file", "-e", `${req.after}^{commit}`))) {
+      return { kind: "skipped", reason: "not_in_branch" };
+    }
+    if (!(await ok("merge-base", "--is-ancestor", req.after, "HEAD"))) {
+      return { kind: "skipped", reason: "not_in_branch" };
+    }
+    if (
+      !(await ok("cat-file", "-e", `${req.before}^{commit}`)) ||
+      !(await ok("merge-base", "--is-ancestor", req.before as string, req.after))
+    ) {
+      return { kind: "skipped", reason: "not_ancestor" };
+    }
+    await git("switch", "--quiet", "-c", req.branch);
+    try {
+      await git("revert", "--no-commit", "--no-edit", `${req.before}..${req.after}`);
+    } catch (error) {
+      await ok("revert", "--abort");
+      await ok("reset", "--hard", "--quiet", "HEAD");
+      return {
+        kind: "skipped",
+        reason: "conflict",
+        detail: access.mask(errorText(error)).slice(0, 500),
+      };
+    }
+    return undefined;
+  });
+  if (outcome) return outcome;
+
+  const committed = await commitForJob({
+    dir: req.dir,
+    message: req.message,
+    author: req.author,
+    ...(req.run ? { run: req.run } : {}),
+  });
+  if (!committed) return { kind: "skipped", reason: "empty" };
+  await pushBranch({
+    dir: req.dir,
+    repo: req.repo,
+    token: req.token,
+    branch: req.branch,
+    ...(req.signal ? { signal: req.signal } : {}),
+    ...(req.baseUrl ? { baseUrl: req.baseUrl } : {}),
+    ...(req.run ? { run: req.run } : {}),
+  });
+  return { kind: "created", branch: req.branch, head: committed.head };
+}

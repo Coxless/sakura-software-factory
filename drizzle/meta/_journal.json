@@ -36,6 +36,13 @@
       "when": 1794637872491,
       "tag": "0004_ci_feedback",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794658405928,
+      "tag": "0005_staging_deploy",
+      "breakpoints": true
     }
   ]
 }

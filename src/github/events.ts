@@ -1,6 +1,6 @@
 import Type, { type Static } from "typebox";
 import Value from "typebox/value";
-import type { AgentRequest, CiEvent } from "./port.ts";
+import type { AgentRequest, CiEvent, PushEvent } from "./port.ts";
 
 /**
  * issue_comment のペイロードのうち、受付で使う項目だけ（余分な項目は許す）。
@@ -165,4 +165,47 @@ export function toCiEvent(event: string, payload: unknown): CiEventResult {
     };
   }
   return { kind: "ignored", reason: "event" };
+}
+
+// ---- 010: push の知らせ（contracts/webhook.md） ----
+
+const Sha = Type.String({ pattern: "^[0-9a-f]{40}$" });
+
+const PushPayload = Type.Object({
+  ref: Type.String({ minLength: 1 }),
+  before: Sha,
+  after: Sha,
+  deleted: Type.Optional(Type.Boolean()),
+  repository: Type.Object({
+    full_name: Type.String({ pattern: "^[^/\\s]+/[^/\\s]+$" }),
+    default_branch: Type.String({ minLength: 1 }),
+  }),
+});
+type PushPayload = Static<typeof PushPayload>;
+
+export type PushEventResult =
+  | { kind: "event"; event: PushEvent }
+  | { kind: "ignored"; reason: "event" };
+
+/**
+ * push のペイロードから知らせを取り出す（010 research R1）。デプロイするかの絞り込みは受付が設定を見て行う。
+ * 項目が欠けていれば PayloadError
+ */
+export function toPushEvent(event: string, payload: unknown): PushEventResult {
+  if (event !== "push") return { kind: "ignored", reason: "event" };
+  if (!Value.Check(PushPayload, payload)) {
+    throw new PayloadError("push のペイロードに必要な項目がありません");
+  }
+  const { ref, before, after, deleted, repository } = payload as PushPayload;
+  return {
+    kind: "event",
+    event: {
+      repo: repository.full_name,
+      ref,
+      defaultBranch: repository.default_branch,
+      before,
+      after,
+      deleted: deleted === true,
+    },
+  };
 }

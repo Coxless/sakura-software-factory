@@ -58,6 +58,7 @@ describe("schema", () => {
 
     db.insert(deployments)
       .values({
+        repo: "Coxless/demo",
         job_id: jobId,
         commit_sha: "abc",
         image_tag: "demo:abc",
@@ -264,6 +265,86 @@ describe("schema", () => {
     expect(() => setStatus("failed")).not.toThrow();
     expect(() => setStatus(null)).not.toThrow();
     expect(() => setStatus("success")).toThrow(/CHECK/);
+    close();
+  });
+});
+
+describe("deployments（010）", () => {
+  const row = (overrides: Partial<typeof deployments.$inferInsert> = {}) => ({
+    repo: "Coxless/demo",
+    commit_sha: "a".repeat(40),
+    image_tag: "app:aaaaaaaaaaaa",
+    status: "queued" as const,
+    created_at: 1,
+    ...overrides,
+  });
+
+  test("同じリポジトリの同じ commit は2行にできない", () => {
+    const { db, close } = migratedMemoryDb();
+    db.insert(deployments).values(row()).run();
+    expect(() => db.insert(deployments).values(row()).run()).toThrow(/UNIQUE/);
+    db.insert(deployments)
+      .values(row({ repo: "Coxless/other" }))
+      .run();
+    close();
+  });
+
+  test("failed のときだけ failed_stage を持つ", () => {
+    const { db, close } = migratedMemoryDb();
+    expect(() =>
+      db
+        .insert(deployments)
+        .values(row({ status: "failed" }))
+        .run(),
+    ).toThrow(/CHECK/);
+    expect(() =>
+      db
+        .insert(deployments)
+        .values(row({ status: "succeeded", failed_stage: "build" }))
+        .run(),
+    ).toThrow(/CHECK/);
+    db.insert(deployments)
+      .values(row({ status: "failed", failed_stage: "health" }))
+      .run();
+    close();
+  });
+
+  test("決められた以外の状態・段階は拒む", () => {
+    const { db, close } = migratedMemoryDb();
+    expect(() =>
+      db
+        .insert(deployments)
+        .values(row({ status: "done" as "queued" }))
+        .run(),
+    ).toThrow(/CHECK/);
+    expect(() =>
+      db
+        .insert(deployments)
+        .values(row({ status: "failed", failed_stage: "unknown" as "build" }))
+        .run(),
+    ).toThrow(/CHECK/);
+    close();
+  });
+
+  test("ロールバックしていなければ戻し先を持たない", () => {
+    const { db, close } = migratedMemoryDb();
+    expect(() =>
+      db
+        .insert(deployments)
+        .values(row({ rolled_back_to: "app:old" }))
+        .run(),
+    ).toThrow(/CHECK/);
+    db.insert(deployments)
+      .values(
+        row({
+          status: "failed",
+          failed_stage: "health",
+          rolled_back: true,
+          rolled_back_to: "app:old",
+          rollback_healthy: true,
+        }),
+      )
+      .run();
     close();
   });
 });

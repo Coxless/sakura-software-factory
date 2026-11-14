@@ -9,11 +9,13 @@ import {
   cloneBranchForRetry,
   cloneForJob,
   commitForJob,
+  fetchCommit,
   type GitRunner,
   pushBranch,
+  revertRange,
   ShipGitError,
 } from "./git.ts";
-import { createBareRepo } from "./testing.ts";
+import { commitToBareRepo, createBareRepo } from "./testing.ts";
 
 const TOKEN = "ghs_FakeInstallationToken0123456789abcd";
 
@@ -390,5 +392,157 @@ describe("cloneBranchForRetry（009）", () => {
     }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(CloneError);
     expect(String((error as Error).message)).not.toContain(TOKEN);
+  });
+});
+
+describe("fetchCommit（010）", () => {
+  test("指定した commit のファイルを取り出し、.git を残さず、トークンを引数に出さない", async () => {
+    const { baseUrl, root } = await createBareRepo();
+    const first = await commitToBareRepo(root, { "app.txt": "v1\n" }, "v1");
+    await commitToBareRepo(root, { "app.txt": "v2\n" }, "v2");
+    const dir = join(root, "deploy-1");
+    const { calls, run } = recordingRunner();
+    await fetchCommit({ repo: "octo-org/demo", token: TOKEN, sha: first, dir, baseUrl, run });
+    expect(readFileSync(join(dir, "app.txt"), "utf8")).toBe("v1\n");
+    expect(() => readFileSync(join(dir, ".git", "HEAD"))).toThrow();
+    for (const call of calls) expect(call.args.join(" ")).not.toContain(TOKEN);
+  });
+
+  test("ない commit は CloneError（トークンは伏せる）", async () => {
+    const { baseUrl, root } = await createBareRepo();
+    const error = await fetchCommit({
+      repo: "octo-org/demo",
+      token: TOKEN,
+      sha: "f".repeat(40),
+      dir: join(root, "deploy-2"),
+      baseUrl,
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CloneError);
+    expect((error as Error).message).not.toContain(TOKEN);
+  });
+});
+
+describe("revertRange（010）", () => {
+  const BOT = { name: "factory-app[bot]", email: "1+factory-app[bot]@users.noreply.github.com" };
+
+  async function repoWithChange() {
+    const bare = await createBareRepo();
+    const before = await commitToBareRepo(bare.root, { "app.txt": "ok\n" }, "base");
+    const after = await commitToBareRepo(
+      bare.root,
+      { "app.txt": "broken\n", "new.txt": "x\n" },
+      "break",
+    );
+    return { ...bare, before, after };
+  }
+
+  const request = (ctx: Awaited<ReturnType<typeof repoWithChange>>, n: number) => ({
+    repo: "octo-org/demo",
+    token: TOKEN,
+    defaultBranch: "main",
+    before: ctx.before,
+    after: ctx.after,
+    branch: `factory/revert-${ctx.after.slice(0, 7)}`,
+    message: "Revert broken",
+    author: BOT,
+    dir: join(ctx.root, `revert-${n}`),
+    baseUrl: ctx.baseUrl,
+  });
+
+  const show = (root: string, ref: string, path: string) =>
+    execa("git", ["--git-dir", join(root, "octo-org", "demo.git"), "show", `${ref}:${path}`]).then(
+      (r) => r.stdout,
+      () => undefined,
+    );
+
+  test("範囲を打ち消す1つの commit を新しいブランチに push し、main は変えない", async () => {
+    const ctx = await repoWithChange();
+    const result = await revertRange(request(ctx, 1));
+    expect(result).toMatchObject({
+      kind: "created",
+      branch: `factory/revert-${ctx.after.slice(0, 7)}`,
+    });
+    const branch = `factory/revert-${ctx.after.slice(0, 7)}`;
+    expect(await show(ctx.root, branch, "app.txt")).toBe("ok");
+    expect(await show(ctx.root, branch, "new.txt")).toBeUndefined();
+    expect(await show(ctx.root, "main", "app.txt")).toBe("broken");
+    const log = await execa("git", [
+      "--git-dir",
+      join(ctx.root, "octo-org", "demo.git"),
+      "log",
+      "-1",
+      "--format=%an|%s|%P",
+      branch,
+    ]);
+    expect(log.stdout).toBe(`${BOT.name}|Revert broken|${ctx.after}`);
+  });
+
+  test("後の commit が乗っていても、その上に打ち消しを積む", async () => {
+    const ctx = await repoWithChange();
+    const later = await commitToBareRepo(ctx.root, { "other.txt": "later\n" }, "later");
+    const result = await revertRange(request(ctx, 2));
+    expect(result.kind).toBe("created");
+    const branch = `factory/revert-${ctx.after.slice(0, 7)}`;
+    expect(await show(ctx.root, branch, "other.txt")).toBe("later");
+    const parent = await execa("git", [
+      "--git-dir",
+      join(ctx.root, "octo-org", "demo.git"),
+      "log",
+      "-1",
+      "--format=%P",
+      branch,
+    ]);
+    expect(parent.stdout).toBe(later);
+  });
+
+  test("before がない・0 だけなら no_range（取得もしない）", async () => {
+    const ctx = await repoWithChange();
+    expect(await revertRange({ ...request(ctx, 3), before: null })).toEqual({
+      kind: "skipped",
+      reason: "no_range",
+    });
+    expect(await revertRange({ ...request(ctx, 4), before: "0".repeat(40) })).toEqual({
+      kind: "skipped",
+      reason: "no_range",
+    });
+  });
+
+  test("祖先でない before は not_ancestor、main にない after は not_in_branch", async () => {
+    const ctx = await repoWithChange();
+    expect(
+      await revertRange({ ...request(ctx, 5), before: ctx.after, after: ctx.before }),
+    ).toMatchObject({ kind: "skipped", reason: "not_ancestor" });
+    expect(await revertRange({ ...request(ctx, 6), after: "e".repeat(40) })).toMatchObject({
+      kind: "skipped",
+      reason: "not_in_branch",
+    });
+  });
+
+  test("後の commit と衝突すれば conflict で、何も push しない", async () => {
+    const ctx = await repoWithChange();
+    await commitToBareRepo(ctx.root, { "app.txt": "rewritten\n" }, "rewrite");
+    const result = await revertRange(request(ctx, 7));
+    expect(result).toMatchObject({ kind: "skipped", reason: "conflict" });
+    const branches = await execa("git", [
+      "--git-dir",
+      join(ctx.root, "octo-org", "demo.git"),
+      "branch",
+      "--list",
+      "factory/*",
+    ]);
+    expect(branches.stdout).toBe("");
+  });
+
+  test("すでに戻されていて変更が空なら empty", async () => {
+    const ctx = await repoWithChange();
+    await commitToBareRepo(ctx.root, { "app.txt": "ok\n", "new.txt": null }, "manual revert");
+    expect(await revertRange(request(ctx, 8))).toMatchObject({ kind: "skipped", reason: "empty" });
+  });
+
+  test("同じブランチがあれば push を拒まれ ShipGitError", async () => {
+    const ctx = await repoWithChange();
+    await revertRange(request(ctx, 9));
+    await commitToBareRepo(ctx.root, { "z.txt": "z\n" }, "more");
+    await expect(revertRange(request(ctx, 10))).rejects.toBeInstanceOf(ShipGitError);
   });
 });

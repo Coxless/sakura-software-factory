@@ -9,6 +9,14 @@ import {
   loadConfig,
   requireEnv,
 } from "./config.ts";
+import {
+  catchUpDeployments,
+  createDeployer,
+  type Deployer,
+  type DeployerDeps,
+  recoverDeployments,
+} from "./deploy/runner.ts";
+import { createDockerStaging, type StagingRuntime } from "./deploy/staging.ts";
 import { createGitHubClient, readPrivateKey } from "./github/client.ts";
 import type { GitHubPort } from "./github/port.ts";
 import { createApp } from "./http/app.ts";
@@ -47,11 +55,14 @@ export interface FactoryServices {
   removeSandboxes: WorkerDeps["removeSandboxes"];
   /** テストでは file:// の bare リポジトリ */
   cloneBaseUrl?: string;
+  /** ステージングの Docker の操作（010）。省くとデプロイの実行器を動かさない（積んだデプロイは残る） */
+  staging?: StagingRuntime;
 }
 
 /**
  * DB を開いてマイグレーションを適用し、HTTP の待ち受けを始める。失敗したら開いた DB を閉じて投げる。
- * makeServices を渡すと、起動時の掃除 → Worker と CI 待ちの見回りの開始 → /webhook 付きの待ち受け、の順に始める（007・009）。
+ * makeServices を渡すと、起動時の掃除（Worker・デプロイ）→ Worker・CI 待ちの見回り・デプロイの実行器の開始 →
+ * /webhook 付きの待ち受け → 既定のブランチの先頭の取り直し（待たない）、の順に始める（007・009・010）。
  * 005 の入口は開いた DB を使うので、DB を受け取って依存を返す関数で渡す。省くと HTTP（/healthz）だけ
  */
 export async function startFactory(
@@ -70,6 +81,8 @@ export async function startFactory(
 
   let worker: Worker | undefined;
   let monitor: CiMonitor | undefined;
+  let deployer: Deployer | undefined;
+  let deployDeps: DeployerDeps | undefined;
   let webhook: WebhookHandler | undefined;
   if (makeServices) {
     const services = makeServices(handle.db);
@@ -86,8 +99,19 @@ export async function startFactory(
     if (config.pipeline.install_command === "") {
       logger.warn("[pipeline].install_command が空です。依存のインストールを飛ばします");
     }
+    if (services.staging) {
+      deployDeps = {
+        db: handle.db,
+        config,
+        logger,
+        github: services.github,
+        staging: services.staging,
+        ...(services.cloneBaseUrl ? { cloneBaseUrl: services.cloneBaseUrl } : {}),
+      };
+    }
     try {
       await recoverOnStartup(deps);
+      if (deployDeps) await recoverDeployments(deployDeps);
     } catch (error) {
       handle.close();
       throw new Error("起動時の掃除に失敗しました", { cause: error });
@@ -97,6 +121,9 @@ export async function startFactory(
     // CI 待ちの見回りは Worker と別のループ（009 research R3）。やり直しの印を付けたら Worker を起こす
     const ci = createCiMonitor({ ...deps, wakeWorker: () => started.wake() });
     monitor = ci;
+    // デプロイの実行器も Worker と別のループ（010 research R2）
+    const deploying = deployDeps ? createDeployer(deployDeps) : undefined;
+    deployer = deploying;
     webhook = createWebhookHandler({
       db: handle.db,
       config,
@@ -105,9 +132,11 @@ export async function startFactory(
       secret: services.webhookSecret,
       wake: () => started.wake(),
       wakeCi: () => ci.wake(),
+      wakeDeployer: () => deploying?.wake(),
     });
     started.start();
     ci.start();
+    deploying?.start();
   }
 
   const { host, port, shutdown_timeout_seconds: shutdownTimeoutSeconds } = config.http;
@@ -132,6 +161,7 @@ export async function startFactory(
   } catch (error) {
     await worker?.stop();
     await monitor?.stop();
+    await deployer?.stop();
     handle.close();
     throw error;
   }
@@ -140,16 +170,24 @@ export async function startFactory(
     { database, models: config.models, http: { host, port: server.address.port } },
     "factory started",
   );
+  // 停止中に届かなかった main への push を拾う（010 research R9）。起動は待たない
+  const catchUp = deployDeps
+    ? catchUpDeployments(deployDeps).then((result) => {
+        if (result === "queued") deployer?.wake();
+      })
+    : Promise.resolve();
 
   let stopping: Promise<void> | undefined;
   return {
     address: server.address,
     database: handle.sqlite,
     stop() {
-      // Worker（処理中のジョブを中断して報告）→ CI 待ちの見回り → HTTP → 応答のあとの処理 → DB の順に止める（research R11）
+      // Worker（処理中のジョブを中断して報告）→ CI 待ちの見回り → デプロイの実行器 → HTTP → 応答のあとの処理 → DB の順に止める
       stopping ??= (async () => {
         await worker?.stop();
         await monitor?.stop();
+        await catchUp;
+        await deployer?.stop();
         await server.close();
         await webhook?.idle();
         handle.close();
@@ -217,6 +255,7 @@ export function createServices(
     removeSandboxes: async (jobId) => {
       await removeStaleSandboxes(jobId === undefined ? {} : { jobId });
     },
+    staging: createDockerStaging(config.staging),
   };
 }
 

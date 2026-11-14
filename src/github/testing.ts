@@ -34,6 +34,8 @@ export interface FakeGitHubOptions {
   checkRuns?: Record<string, CheckRunInfo[]>;
   /** チェックの ID → ログ（009） */
   checkLogs?: Record<number, string>;
+  /** 既定のブランチの先頭（010）。省くと main と 0 だけ */
+  defaultBranchHead?: { branch: string; sha: string };
 }
 
 /** 偽の GitHub が持つ PR */
@@ -43,6 +45,8 @@ export interface FakePullRequest extends CreatePullRequest, PullRequestRef {
   state: "open" | "closed";
   merged: boolean;
   headSha: string;
+  /** マージ commit（010） */
+  mergeCommitSha?: string;
 }
 
 export interface FakeCall {
@@ -202,6 +206,18 @@ export class FakeGitHub implements GitHubPort {
     return this.options.checkLogs?.[req.check.id];
   }
 
+  async findMergedPullRequest(req: { repo: string; sha: string }): Promise<number | undefined> {
+    await this.enter("findMergedPullRequest", req);
+    return this.pullRequests.find(
+      (p) => p.repo === req.repo && p.merged && p.mergeCommitSha === req.sha,
+    )?.number;
+  }
+
+  async getDefaultBranchHead(req: { repo: string }): Promise<{ branch: string; sha: string }> {
+    await this.enter("getDefaultBranchHead", req);
+    return this.options.defaultBranchHead ?? { branch: "main", sha: "0".repeat(40) };
+  }
+
   /** テスト用: commit のチェックを差し替える（009） */
   setCheckRuns(sha: string, runs: CheckRunInfo[]): void {
     this.options.checkRuns = { ...this.options.checkRuns, [sha]: runs };
@@ -228,12 +244,13 @@ export class FakeGitHub implements GitHubPort {
     return full;
   }
 
-  /** テスト用: PR をマージ済みにする（009） */
-  mergePullRequest(number: number): void {
+  /** テスト用: PR をマージ済みにする（009）。mergeCommitSha はマージ commit（010） */
+  mergePullRequest(number: number, mergeCommitSha?: string): void {
     const pr = this.pullRequests.find((p) => p.number === number);
     if (!pr) throw new Error(`PR がありません: ${number}`);
     pr.state = "closed";
     pr.merged = true;
+    if (mergeCommitSha !== undefined) pr.mergeCommitSha = mergeCommitSha;
   }
 
   /** テスト用: PR をマージせずに閉じる（009） */
@@ -293,4 +310,39 @@ export async function createBareRepo(): Promise<{ baseUrl: string; root: string 
   mkdirSync(join(root, "octo-org"));
   await execa("git", ["clone", "--quiet", "--bare", work, join(root, "octo-org", "demo.git")]);
   return { baseUrl: `file://${root}`, root };
+}
+
+/**
+ * テスト用: createBareRepo の main に1つの commit を積んで push し、その commit を返す（010）。
+ * files の値が null ならそのファイルを消す
+ */
+export async function commitToBareRepo(
+  root: string,
+  files: Record<string, string | null>,
+  message: string,
+  repo = "octo-org/demo",
+): Promise<string> {
+  const work = mkdtempSync(join(tmpdir(), "factory-git-commit-"));
+  const git = (...args: string[]) => execa("git", args, { cwd: work });
+  await execa("git", ["clone", "--quiet", join(root, `${repo}.git`), work]);
+  for (const [path, content] of Object.entries(files)) {
+    if (content === null) {
+      await git("rm", "--quiet", path);
+    } else {
+      mkdirSync(join(work, path, ".."), { recursive: true });
+      writeFileSync(join(work, path), content);
+    }
+  }
+  await git("add", "-A");
+  await git(
+    "-c",
+    "user.name=seed",
+    "-c",
+    "user.email=seed@example.invalid",
+    "commit",
+    "-qm",
+    message,
+  );
+  await git("push", "--quiet", "origin", "HEAD:main");
+  return (await git("rev-parse", "HEAD")).stdout.trim();
 }

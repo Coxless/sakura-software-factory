@@ -1,16 +1,19 @@
 import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Writable } from "node:stream";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { type FactoryConfig, parseConfig } from "./config.ts";
-import { createBareRepo, FakeGitHub, signedRequest } from "./github/testing.ts";
+import { FakeStaging } from "./deploy/testing.ts";
+import { commitToBareRepo, createBareRepo, FakeGitHub, signedRequest } from "./github/testing.ts";
 import { createLogger } from "./log.ts";
 import { type FactoryServices, installSignalHandlers, startFactory } from "./main.ts";
 import type { PipelineResult } from "./pipeline/run.ts";
 import { openDatabase } from "./queue/db.ts";
-import { jobs } from "./queue/schema.ts";
+import { deployments, jobs } from "./queue/schema.ts";
 
 const dirs: string[] = [];
 
@@ -270,5 +273,146 @@ describe("installSignalHandlers", () => {
     installSignalHandlers({ signals, stop: async () => Promise.reject(new Error("x")), exit });
     signals.emit("SIGTERM", "SIGTERM");
     await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(1));
+  });
+});
+
+describe("startFactory: ステージングデプロイ（010）", () => {
+  const SECRET = "test-webhook-secret";
+
+  /** /healthz が 200 を返すサーバー（ステージングの代わり） */
+  async function healthServer(): Promise<{ port: number; close: () => Promise<void> }> {
+    const server = createServer((req, res) => {
+      res.statusCode = req.url === "/healthz" ? 200 : 404;
+      res.end("ok");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    return {
+      port: (server.address() as AddressInfo).port,
+      close: () => new Promise((resolve) => server.close(() => resolve())),
+    };
+  }
+
+  function stagingConfig(dir: string, port: number): FactoryConfig {
+    const base = configWith(dir);
+    return {
+      ...base,
+      staging: {
+        ...base.staging,
+        repo: "octo-org/demo",
+        port,
+        health_successes: 1,
+        health_interval_seconds: 1,
+        health_timeout_seconds: 5,
+      },
+    };
+  }
+
+  test("main への push を受けてビルド・入れ替え・ヘルスチェックをして succeeded にする", async () => {
+    const { logger } = capture();
+    const dir = tempDir();
+    const health = await healthServer();
+    const { baseUrl, root } = await createBareRepo();
+    const sha = await commitToBareRepo(root, { "app.txt": "v1\n" }, "v1");
+    const github = new FakeGitHub({ defaultBranchHead: { branch: "main", sha } });
+    const staging = new FakeStaging();
+    const factory = await startFactory(stagingConfig(dir, health.port), logger, () => ({
+      github,
+      webhookSecret: SECRET,
+      pipeline: async () => {
+        throw new Error("呼ばれない");
+      },
+      install: async () => ({ exitCode: 0, stderrTail: "" }),
+      removeSandboxes: async () => {},
+      cloneBaseUrl: baseUrl,
+      staging,
+    }));
+    const row = () =>
+      factory.database.prepare("SELECT commit_sha, status FROM deployments").all() as {
+        commit_sha: string;
+        status: string;
+      }[];
+    // 起動時の取り直しで main の先頭が積まれ、デプロイされる
+    await vi.waitFor(() => expect(row()).toEqual([{ commit_sha: sha, status: "succeeded" }]), {
+      timeout: 10_000,
+    });
+    const next = await commitToBareRepo(root, { "app.txt": "v2\n" }, "v2");
+    const res = await fetch(
+      `http://127.0.0.1:${factory.address.port}/webhook`,
+      signedRequest(SECRET, "push", {
+        ref: "refs/heads/main",
+        before: sha,
+        after: next,
+        repository: { full_name: "octo-org/demo", default_branch: "main" },
+      }),
+    );
+    expect(await res.json()).toMatchObject({ result: "deploy_queued" });
+    await vi.waitFor(() => expect(row()[1]).toEqual({ commit_sha: next, status: "succeeded" }), {
+      timeout: 10_000,
+    });
+    expect(staging.running).toBe(`sakura-staging-app:${next.slice(0, 12)}`);
+    await factory.stop();
+    await health.close();
+  });
+
+  test("起動時に、途中のデプロイを interrupted にし、deploying のジョブを restarted で failed にする", async () => {
+    const { logger } = capture();
+    const dir = tempDir();
+    const config = stagingConfig(dir, 1024);
+    const first = await startFactory(config, logger);
+    await first.stop();
+    const handle = openDatabase(config.storage.database_path);
+    const job = handle.db
+      .insert(jobs)
+      .values({
+        repo: "octo-org/demo",
+        issue_number: 7,
+        trigger_comment_id: 1,
+        requested_by: "Coxless",
+        instruction: "x",
+        status: "deploying",
+        pr_number: 3,
+        created_at: 1,
+        updated_at: 1,
+      })
+      .returning()
+      .get();
+    handle.db
+      .insert(deployments)
+      .values({
+        repo: "octo-org/demo",
+        job_id: job.id,
+        commit_sha: "a".repeat(40),
+        image_tag: "x:a",
+        status: "running",
+        created_at: 1,
+      })
+      .run();
+    handle.close();
+
+    const github = new FakeGitHub({
+      defaultBranchHead: { branch: "main", sha: "a".repeat(40) },
+    });
+    github.addPullRequest({ number: 3, state: "closed", merged: true });
+    const factory = await startFactory(config, logger, () => ({
+      github,
+      webhookSecret: SECRET,
+      pipeline: async () => {
+        throw new Error("呼ばれない");
+      },
+      install: async () => ({ exitCode: 0, stderrTail: "" }),
+      removeSandboxes: async () => {},
+      staging: new FakeStaging(),
+    }));
+    const [j] = factory.database.prepare("SELECT status, failure_reason FROM jobs").all() as {
+      status: string;
+      failure_reason: string;
+    }[];
+    expect(j?.status).toBe("failed");
+    expect(j?.failure_reason).toMatch(/^restarted: /);
+    const [d] = factory.database.prepare("SELECT status, failed_stage FROM deployments").all();
+    expect(d).toEqual({ status: "failed", failed_stage: "interrupted" });
+    expect(github.comments).toHaveLength(1);
+    expect(github.count("convertToDraft")).toBe(0);
+    await factory.stop();
   });
 });

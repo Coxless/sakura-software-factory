@@ -347,7 +347,9 @@ export interface TestConfigOverrides {
     max_feedback_chars: number;
   }>;
   /** [storage] の一部（004 の軌跡のテスト） */
-  storage?: Partial<{ trace_dir: string; eval_dir: string }>;
+  storage?: Partial<{ trace_dir: string; eval_dir: string; work_dir: string }>;
+  /** [staging] の一部（010） */
+  staging?: Record<string, string | number>;
 }
 
 export const TEST_API_KEY = "test-key-ABCDEF123";
@@ -397,6 +399,7 @@ ${optionalTable("limits", overrides.limits)}
 ${optionalTable("implementer", overrides.implementer)}
 ${optionalTable("storage", overrides.storage)}
 ${optionalTable("pipeline", overrides.pipeline)}
+${optionalTable("staging", overrides.staging)}
 `,
     "/tmp",
   );

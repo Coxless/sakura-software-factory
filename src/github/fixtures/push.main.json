@@ -1,0 +1,21 @@
+{
+  "ref": "refs/heads/main",
+  "before": "1111111111111111111111111111111111111111",
+  "after": "2222222222222222222222222222222222222222",
+  "created": false,
+  "deleted": false,
+  "forced": false,
+  "compare": "https://github.com/octo-org/demo/compare/111111111111...222222222222",
+  "head_commit": {
+    "id": "2222222222222222222222222222222222222222",
+    "message": "README を直す (#5)"
+  },
+  "pusher": { "name": "web-flow" },
+  "repository": {
+    "id": 1,
+    "full_name": "octo-org/demo",
+    "default_branch": "main",
+    "private": false
+  },
+  "sender": { "login": "Coxless", "type": "User" }
+}

@@ -5,7 +5,7 @@ import { describe, expect, test } from "vitest";
 import { parseConfig } from "../config.ts";
 import { FakeGitHub, type FakeGitHubOptions, signedRequest } from "../github/testing.ts";
 import { createLogger } from "../log.ts";
-import { budget, jobEvents, jobs, llmCalls } from "../queue/schema.ts";
+import { budget, deployments, jobEvents, jobs, llmCalls } from "../queue/schema.ts";
 import { migratedMemoryDb } from "../queue/testing.ts";
 import { createApp } from "./app.ts";
 import { createWebhookHandler } from "./webhook.ts";
@@ -64,6 +64,7 @@ function setup(
   });
   let wakes = 0;
   let ciWakes = 0;
+  let deployWakes = 0;
   const webhook = createWebhookHandler({
     db: handle.db,
     config: options.config ?? CONFIG,
@@ -77,6 +78,9 @@ function setup(
     wakeCi: () => {
       ciWakes += 1;
     },
+    wakeDeployer: () => {
+      deployWakes += 1;
+    },
     ...(options.permissionTimeoutMs === undefined
       ? {}
       : { permissionTimeoutMs: options.permissionTimeoutMs }),
@@ -87,7 +91,17 @@ function setup(
     await webhook.idle();
     return res;
   };
-  return { app, post, handle, github, log, wakes: () => wakes, ciWakes: () => ciWakes, webhook };
+  return {
+    app,
+    post,
+    handle,
+    github,
+    log,
+    wakes: () => wakes,
+    ciWakes: () => ciWakes,
+    deployWakes: () => deployWakes,
+    webhook,
+  };
 }
 
 const jobCount = (handle: ReturnType<typeof migratedMemoryDb>) =>
@@ -485,6 +499,98 @@ describe("POST /webhook: CI の知らせ（009 contracts/webhook.md）", () => {
       "CREATE TRIGGER fail_update BEFORE UPDATE ON jobs BEGIN SELECT RAISE(ABORT, 'disk full'); END;",
     );
     const res = await post(signedRequest(SECRET, "check_suite", fixture("check_suite.completed")));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "internal_error" });
+  });
+});
+
+describe("POST /webhook: push（010 contracts/webhook.md）", () => {
+  const STAGING = parseConfig(
+    `
+[llm]
+base_url = "https://api.ai.sakura.ad.jp/v1"
+[models]
+planner = "p"
+implementer = "i"
+verifier = "v"
+fallback = "f"
+[budget]
+monthly_requests = 100
+per_job_requests = 10
+[github]
+allowed_users = ["Octo-Requester"]
+[staging]
+repo = "Octo-Org/Demo"
+`,
+    "/srv/factory",
+  );
+  const push = (overrides: Record<string, unknown> = {}) => ({
+    ...fixture("push.main"),
+    ...overrides,
+  });
+
+  test("main への push は 202 deploy_queued、queued で積んで実行器を起こし、GitHub を呼ばない", async () => {
+    const { post, handle, github, deployWakes } = setup({ config: STAGING });
+    const res = await post(signedRequest(SECRET, "push", push(), "d-push"));
+    expect(res.status).toBe(202);
+    const rows = handle.db.select().from(deployments).all();
+    expect(await res.json()).toEqual({ result: "deploy_queued", deployment: rows[0]?.id });
+    expect(rows).toMatchObject([
+      {
+        repo: "Octo-Org/Demo",
+        commit_sha: "2".repeat(40),
+        before_sha: "1".repeat(40),
+        image_tag: `sakura-staging-app:${"2".repeat(12)}`,
+        status: "queued",
+        created_at: NOW,
+        job_id: null,
+      },
+    ]);
+    expect(deployWakes()).toBe(1);
+    expect(github.calls).toEqual([]);
+  });
+
+  test("同じ commit の2回目は duplicate で、起こさない", async () => {
+    const { post, handle, deployWakes } = setup({ config: STAGING });
+    await post(signedRequest(SECRET, "push", push(), "d-1"));
+    const res = await post(signedRequest(SECRET, "push", push(), "d-2"));
+    expect(await res.json()).toMatchObject({ result: "duplicate" });
+    expect(handle.db.select().from(deployments).all()).toHaveLength(1);
+    expect(deployWakes()).toBe(1);
+  });
+
+  test("ブランチの作成（before が 0 だけ）は before_sha を NULL にする", async () => {
+    const { post, handle } = setup({ config: STAGING });
+    await post(signedRequest(SECRET, "push", push({ before: "0".repeat(40) })));
+    expect(handle.db.select().from(deployments).get()?.before_sha).toBeNull();
+  });
+
+  test.each([
+    ["staging_disabled", undefined, {}],
+    ["repo", STAGING, { repository: { full_name: "octo-org/other", default_branch: "main" } }],
+    ["ref（タグ）", STAGING, { ref: "refs/tags/v1" }],
+    ["ref（ほかのブランチ）", STAGING, { ref: "refs/heads/feature" }],
+    ["deleted", STAGING, { deleted: true, after: "0".repeat(40) }],
+  ] as const)("%s は 202 ignored で積まない", async (_name, config, overrides) => {
+    const { post, handle, deployWakes } = setup(config ? { config } : {});
+    const res = await post(signedRequest(SECRET, "push", push(overrides)));
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ result: "ignored" });
+    expect(handle.db.select().from(deployments).all()).toEqual([]);
+    expect(deployWakes()).toBe(0);
+  });
+
+  test("項目が欠けていれば 400、署名が違えば 401", async () => {
+    const { post } = setup({ config: STAGING });
+    const { after: _a, ...broken } = push();
+    expect((await post(signedRequest(SECRET, "push", broken))).status).toBe(400);
+    expect((await post(signedRequest("wrong-secret", "push", push()))).status).toBe(401);
+  });
+
+  test("DB に書けなければ 500", async () => {
+    const { post, handle } = setup({ config: STAGING });
+    handle.sqlite.exec("DROP TABLE deployments");
+    const res = await post(signedRequest(SECRET, "push", push()));
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "internal_error" });
   });

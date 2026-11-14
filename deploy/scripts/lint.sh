@@ -73,4 +73,14 @@ else
   fi
 fi
 
+# --- ステージングの compose（010）: 定義の検証 ---
+if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+  ng "docker compose が必要です（deploy/staging/compose.yaml の検査）"
+elif STAGING_IMAGE=lint:check STAGING_PORT=3100 \
+  docker compose -p sakura-staging-lint -f deploy/staging/compose.yaml config -q; then
+  ok "docker compose config（deploy/staging/compose.yaml）"
+else
+  ng "docker compose config（deploy/staging/compose.yaml）"
+fi
+
 exit "$failed"

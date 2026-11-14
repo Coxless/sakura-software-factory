@@ -18,6 +18,7 @@ import {
  * - インストールトークン（1時間で切れる）の発行と更新は octokit に任せ、保存しない
  * - auto-merge の有効化と Draft への変更は REST にないので GraphQL（008 research R6）
  * - CI のチェックとログは Checks・Actions の REST（009 research R1・R7）
+ * - マージ commit から PR を引く・既定のブランチの先頭は REST（010 research R3・R9）
  */
 export function createGitHubClient(options: { appId: string; privateKey: string }): GitHubPort {
   const app = new App({ appId: options.appId, privateKey: options.privateKey });
@@ -226,6 +227,29 @@ export function createGitHubClient(options: { appId: string; privateKey: string 
       } catch {
         return undefined;
       }
+    },
+
+    async findMergedPullRequest({ repo, sha }) {
+      const octokit = await installationOctokit(repo);
+      const { data } = await octokit.request(
+        "GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls",
+        {
+          ...split(repo),
+          commit_sha: sha,
+          per_page: 100,
+        },
+      );
+      return data.find((pr) => pr.merged_at !== null && pr.merge_commit_sha === sha)?.number;
+    },
+
+    async getDefaultBranchHead({ repo }) {
+      const octokit = await installationOctokit(repo);
+      const { data } = await octokit.request("GET /repos/{owner}/{repo}", split(repo));
+      const { data: branch } = await octokit.request(
+        "GET /repos/{owner}/{repo}/branches/{branch}",
+        { ...split(repo), branch: data.default_branch },
+      );
+      return { branch: data.default_branch, sha: branch.commit.sha };
     },
 
     async convertToDraft({ repo, nodeId }) {
