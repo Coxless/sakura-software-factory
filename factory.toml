@@ -54,6 +54,7 @@ max_instruction_chars = 20000  # 依頼の本文（@agent のあと）の上限�
 
 [worker]
 poll_interval_seconds = 5   # キューを見る間隔（1〜300）。受付が積んだときは待たずに取り出す
+ci_check_interval_seconds = 60   # CI 待ちの見回りの間隔（10〜3600）。CI の知らせを受けたときは待たずに見る（009）
 
 [storage]
 database_path = "data/factory.db"   # 相対パスはこのファイルのディレクトリが基準
@@ -120,3 +121,5 @@ max_file_list_chars = 10000   # 計画役に渡すファイル一覧の上限
 # 依存のインストールのコマンド（ネットワークありの一時的な作業場で sh -c で1回実行。007）
 # 対象リポジトリの CI と同じにする。空にするとインストールを飛ばす
 install_command = "pnpm install --frozen-lockfile"
+# CI 失敗後のやり直しで実装役に渡す CI のログの合計の上限（1000〜100000。失敗箇所の前後だけを残す。009）
+max_ci_log_chars = 12000

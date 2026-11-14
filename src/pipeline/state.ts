@@ -51,7 +51,19 @@ export class StateTransitionError extends Error {
 }
 
 /** 遷移と一緒に書く列 */
-export type TransitionFields = Partial<Pick<Job, "failure_reason" | "branch" | "pr_number">>;
+export type TransitionFields = Partial<
+  Pick<
+    Job,
+    | "failure_reason"
+    | "branch"
+    | "pr_number"
+    | "base_sha"
+    | "head_sha"
+    | "ci_status"
+    | "ci_deadline"
+    | "ci_event_at"
+  >
+>;
 
 /**
  * 状態を1つ進める。状態の更新と job_events の state_changed を1つのトランザクションで書く。

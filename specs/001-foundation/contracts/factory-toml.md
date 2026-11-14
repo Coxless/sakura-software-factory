@@ -86,6 +86,7 @@
 - `[pipeline]`: [005 の契約](../../005-local-pipeline/contracts/factory-toml.md)
 - `[github]` の追加分・`[worker]`・`[storage] work_dir`・`[pipeline] install_command`: [007 の契約](../../007-github-intake/contracts/factory-toml.md)
 - `[auto_merge] skip_label`・`forbidden_paths` の既定の追加: [008 の契約](../../008-ship-and-report/contracts/factory-toml.md)
+- `[worker] ci_check_interval_seconds`・`[pipeline] max_ci_log_chars`: [009 の契約](../../009-ci-feedback/contracts/factory-toml.md)
 
 ## 例（必須項目だけ）
 

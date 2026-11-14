@@ -31,6 +31,10 @@ export const TERMINAL_JOB_STATUSES = [
   "failed",
 ] as const satisfies readonly JobStatus[];
 
+/** CI の結論（009 data-model.md 1章）。failed は「やり直しを待つ」 */
+export const CI_STATUSES = ["pending", "passed", "failed"] as const;
+export type CiStatus = (typeof CI_STATUSES)[number];
+
 export const JOB_EVENT_TYPES = ["state_changed", "note", "error"] as const;
 export const LLM_ROLES = ["planner", "implementer", "verifier"] as const;
 export type LlmRole = (typeof LLM_ROLES)[number];
@@ -77,6 +81,16 @@ export const jobs = sqliteTable(
     branch: text("branch"),
     pr_number: integer("pr_number"),
     failure_reason: text("failure_reason"),
+    /** 最初の出荷のときの基準の commit（clone した既定のブランチの先頭。009） */
+    base_sha: text("base_sha"),
+    /** ファクトリーが最後に push した commit（009） */
+    head_sha: text("head_sha"),
+    /** CI の結論（009）。failed は「やり直しを待つ」 */
+    ci_status: text("ci_status", { enum: CI_STATUSES }),
+    /** CI 待ちの期限（009） */
+    ci_deadline: integer("ci_deadline"),
+    /** CI の知らせを受けた印。見回りが評価して消す（009） */
+    ci_event_at: integer("ci_event_at"),
     created_at: integer("created_at").notNull(),
     updated_at: integer("updated_at").notNull(),
     started_at: integer("started_at"),
@@ -85,7 +99,9 @@ export const jobs = sqliteTable(
   (t) => [
     unique("jobs_repo_trigger_comment_unique").on(t.repo, t.trigger_comment_id),
     index("jobs_status_created_at_idx").on(t.status, t.created_at),
+    index("jobs_status_ci_status_idx").on(t.status, t.ci_status),
     check("jobs_status_check", oneOf(t.status, JOB_STATUSES)),
+    check("jobs_ci_status_check", oneOf(t.ci_status, CI_STATUSES)),
   ],
 );
 

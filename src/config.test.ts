@@ -367,6 +367,7 @@ describe("parseConfig: [pipeline]（005）", () => {
       max_diff_chars: 40000,
       max_file_list_chars: 10000,
       install_command: "pnpm install --frozen-lockfile",
+      max_ci_log_chars: 12000,
     });
   });
 
@@ -442,6 +443,34 @@ describe("parseConfig: 自動マージの条件（008）", () => {
   });
 });
 
+describe("parseConfig: CI連携（009）", () => {
+  test("省略すると既定値が入る", () => {
+    const config = parseConfig(MINIMAL, BASE_DIR);
+    expect(config.worker.ci_check_interval_seconds).toBe(60);
+    expect(config.pipeline.max_ci_log_chars).toBe(12000);
+  });
+
+  test("値を指定できる", () => {
+    const config = parseConfig(
+      `${MINIMAL}\n[worker]\nci_check_interval_seconds = 10\n\n[pipeline]\nmax_ci_log_chars = 1000\n`,
+      BASE_DIR,
+    );
+    expect(config.worker.ci_check_interval_seconds).toBe(10);
+    expect(config.pipeline.max_ci_log_chars).toBe(1000);
+  });
+
+  test.each([
+    ["worker", "ci_check_interval_seconds = 9", "/worker/ci_check_interval_seconds", "10 以上"],
+    ["worker", "ci_check_interval_seconds = 3601", "/worker/ci_check_interval_seconds", "3600 以下"],
+    ["pipeline", "max_ci_log_chars = 999", "/pipeline/max_ci_log_chars", "1000 以上"],
+    ["pipeline", "max_ci_log_chars = 100001", "/pipeline/max_ci_log_chars", "100000 以下"],
+  ])("[%s] %s はエラー", (section, line, path, message) => {
+    expect(issuesOf(`${MINIMAL}\n[${section}]\n${line}\n`)).toEqual([
+      { path, message: expect.stringContaining(message) },
+    ]);
+  });
+});
+
 describe("parseConfig: 受付と Worker（007）", () => {
   test("省略すると既定値が入り、work_dir は設定ファイルの場所が基準", () => {
     const config = parseConfig(MINIMAL, BASE_DIR);
@@ -450,7 +479,7 @@ describe("parseConfig: 受付と Worker（007）", () => {
       webhook_max_body_kb: 1024,
       max_instruction_chars: 20000,
     });
-    expect(config.worker).toEqual({ poll_interval_seconds: 5 });
+    expect(config.worker).toEqual({ poll_interval_seconds: 5, ci_check_interval_seconds: 60 });
     expect(config.storage.work_dir).toBe(resolve(BASE_DIR, "data/work"));
     expect(config.pipeline.install_command).toBe("pnpm install --frozen-lockfile");
   });

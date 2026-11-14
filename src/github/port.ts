@@ -37,7 +37,47 @@ export interface GitHubPort {
   convertToDraft(req: { repo: string; nodeId: string }): Promise<void>;
   /** PR の本文を書き直す（振り分けが変わったとき。009・010 の書き足しにも使う）。失敗は例外 */
   updatePullRequestBody(req: { repo: string; number: number; body: string }): Promise<void>;
+  /** PR の状態・Draft・auto-merge・head の commit・本文（009）。失敗は例外 */
+  getPullRequest(req: { repo: string; number: number }): Promise<PullRequestState>;
+  /** commit に付いたチェック（最新の実行だけ、全ページ。009）。失敗は例外 */
+  getCheckRuns(req: { repo: string; sha: string }): Promise<CheckRunInfo[]>;
+  /**
+   * 失敗したチェックのログ（009 research R7）。GitHub Actions のチェックはジョブのログ、
+   * それ以外・取れないときはチェックの output の文。何もない・失敗なら undefined（例外にしない）
+   */
+  getCheckRunLog(req: { repo: string; check: CheckRunInfo }): Promise<string | undefined>;
 }
+
+/** PR の状態（009） */
+export interface PullRequestState {
+  number: number;
+  url: string;
+  nodeId: string;
+  state: "open" | "closed";
+  merged: boolean;
+  draft: boolean;
+  /** auto-merge が有効か */
+  autoMerge: boolean;
+  headSha: string;
+  body: string;
+}
+
+/** commit に付いたチェック1件（009） */
+export interface CheckRunInfo {
+  id: number;
+  name: string;
+  /** queued・in_progress・completed など */
+  status: string;
+  /** success・failure など。終わっていなければ null */
+  conclusion: string | null;
+  /** チェックを作った App の slug（github-actions など） */
+  app: string | null;
+}
+
+/** Webhook から取り出した CI の知らせ（009） */
+export type CiEvent =
+  | { kind: "check_suite"; repo: string; headBranch: string | null; headSha: string }
+  | { kind: "pull_request_closed"; repo: string; prNumber: number; merged: boolean };
 
 export interface IssueInfo {
   title: string;

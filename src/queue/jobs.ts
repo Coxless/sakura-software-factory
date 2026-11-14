@@ -1,5 +1,6 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import type { FactoryConfig } from "../config.ts";
+import type { CiEvent } from "../github/port.ts";
 import { ensureBudgetMonth } from "../llm/budget.ts";
 import type { Db } from "./db.ts";
 import { monthRange } from "./month.ts";
@@ -85,7 +86,7 @@ export function markIntakeStopped(db: Db, config: FactoryConfig, now: number): v
     .run();
 }
 
-/** LLM を使う工程の状態（起動時の掃除の対象）。pr_opened 以降は 008・009 で扱う */
+/** LLM を使う工程の状態（起動時の掃除の対象）。ci_waiting は 009 の見回り（pipeline/ci.ts）で扱う */
 export const INTERRUPTIBLE_STATUSES = [
   "planning",
   "implementing",
@@ -101,4 +102,130 @@ export function listInterruptedJobs(db: Db): Job[] {
     .where(inArray(jobs.status, [...INTERRUPTIBLE_STATUSES]))
     .orderBy(jobs.id)
     .all();
+}
+
+// ---- 009: CI の待ち（research R2〜R5） ----
+
+/**
+ * 次のジョブを取り出す（009 research R5）。やり直しを待つ ci_waiting（ci_status = failed）を最も古い順に先に
+ * implementing にし（ci_retries + 1、ci_status・ci_deadline は NULL）、なければ queued を planning にする。
+ * どちらも即時トランザクションの中の1文なので、二重に取らない
+ */
+export function claimNextJob(
+  db: Db,
+  now: number,
+): { kind: "new" | "ci_retry"; job: Job } | undefined {
+  const retry = db.transaction(
+    (tx) => {
+      const claimed = tx
+        .update(jobs)
+        .set({
+          status: "implementing",
+          ci_retries: sql`${jobs.ci_retries} + 1`,
+          ci_status: null,
+          ci_deadline: null,
+          ci_event_at: null,
+          updated_at: now,
+        })
+        .where(
+          sql`${jobs.id} = (SELECT ${jobs.id} FROM ${jobs} WHERE ${jobs.status} = 'ci_waiting' AND ${jobs.ci_status} = 'failed' ORDER BY ${jobs.updated_at}, ${jobs.id} LIMIT 1)`,
+        )
+        .returning()
+        .get();
+      if (claimed) {
+        tx.insert(jobEvents)
+          .values({
+            job_id: claimed.id,
+            type: "state_changed",
+            from_status: "ci_waiting",
+            to_status: "implementing",
+            detail: JSON.stringify({ reason: "ci_retry", ci_retry: claimed.ci_retries }),
+            created_at: now,
+          })
+          .run();
+      }
+      return claimed;
+    },
+    { behavior: "immediate" },
+  );
+  if (retry) return { kind: "ci_retry", job: retry };
+  const next = claimNextQueuedJob(db, now);
+  return next ? { kind: "new", job: next } : undefined;
+}
+
+/**
+ * 受付: CI の知らせに結び付く ci_waiting のジョブに ci_event_at を入れ、ci_event を記録する（research R2）。
+ * check_suite は repo・branch・head_sha、pull_request_closed は repo・pr_number で結び付ける。なければ undefined
+ */
+export function noteCiEvent(
+  db: Db,
+  event: CiEvent,
+  now: number,
+  delivery: string,
+): Job | undefined {
+  if (event.kind === "check_suite" && event.headBranch === null) return undefined;
+  return db.transaction(
+    (tx) => {
+      const match =
+        event.kind === "check_suite"
+          ? and(
+              eq(jobs.repo, event.repo),
+              eq(jobs.branch, event.headBranch as string),
+              eq(jobs.head_sha, event.headSha),
+            )
+          : and(eq(jobs.repo, event.repo), eq(jobs.pr_number, event.prNumber));
+      const noted = tx
+        .update(jobs)
+        .set({ ci_event_at: now })
+        .where(and(eq(jobs.status, "ci_waiting"), match))
+        .returning()
+        .get();
+      if (noted) {
+        tx.insert(jobEvents)
+          .values({
+            job_id: noted.id,
+            type: "note",
+            detail: JSON.stringify({
+              kind: "ci_event",
+              event: event.kind === "check_suite" ? "check_suite" : "pull_request",
+              delivery,
+              ...(event.kind === "check_suite"
+                ? { head_sha: event.headSha }
+                : { merged: event.merged }),
+            }),
+            created_at: now,
+          })
+          .run();
+      }
+      return noted;
+    },
+    { behavior: "immediate" },
+  );
+}
+
+/** 見回りの対象（research R3）: ci_waiting で、知らせの印がある、または pending で期限切れ。古い順 */
+export function listCiJobsToCheck(db: Db, now: number): Job[] {
+  return db
+    .select()
+    .from(jobs)
+    .where(
+      and(
+        eq(jobs.status, "ci_waiting"),
+        or(
+          isNotNull(jobs.ci_event_at),
+          and(eq(jobs.ci_status, "pending"), lte(jobs.ci_deadline, now)),
+        ),
+      ),
+    )
+    .orderBy(asc(jobs.id))
+    .all();
+}
+
+/** 起動時: pending の ci_waiting すべてに印を付ける（停止中の知らせの取りこぼしを拾う）。付けた件数を返す */
+export function markPendingCiJobs(db: Db, now: number): number {
+  return db
+    .update(jobs)
+    .set({ ci_event_at: now })
+    .where(and(eq(jobs.status, "ci_waiting"), eq(jobs.ci_status, "pending")))
+    .run().changes;
 }

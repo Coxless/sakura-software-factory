@@ -30,20 +30,20 @@ description: "Task list for 009 ci-feedback"
 
 ## Phase 1: Setup
 
-- [ ] T001 `src/config.test.ts` に contracts/factory-toml.md のテストを足す: 省略時に `worker.ci_check_interval_seconds = 60`・`pipeline.max_ci_log_chars = 12000`。範囲の外（`ci_check_interval_seconds` が 9・3601、`max_ci_log_chars` が 999・100001）で項目の名前を含むエラー
-- [ ] T002 `src/config.ts` に `[worker].ci_check_interval_seconds`（`Range(10, 3600, 60)`）と `[pipeline].max_ci_log_chars`（`Range(1000, 100000, 12000)`）を足して T001 を通し、`factory.toml`・`factory.dev.toml` に日本語のコメント付きで足す。`specs/001-foundation/contracts/factory-toml.md` の「後続の機能で足した表」に 009 のリンクを足す
+- [X] T001 `src/config.test.ts` に contracts/factory-toml.md のテストを足す: 省略時に `worker.ci_check_interval_seconds = 60`・`pipeline.max_ci_log_chars = 12000`。範囲の外（`ci_check_interval_seconds` が 9・3601、`max_ci_log_chars` が 999・100001）で項目の名前を含むエラー
+- [X] T002 `src/config.ts` に `[worker].ci_check_interval_seconds`（`Range(10, 3600, 60)`）と `[pipeline].max_ci_log_chars`（`Range(1000, 100000, 12000)`）を足して T001 を通し、`factory.toml`・`factory.dev.toml` に日本語のコメント付きで足す。`specs/001-foundation/contracts/factory-toml.md` の「後続の機能で足した表」に 009 のリンクを足す
 
 ---
 
 ## Phase 2: Foundational（スキーマ・GitHub 層・キュー・失敗の分類）
 
-- [ ] T003 `src/queue/schema.ts` の `jobs` に data-model.md 1章の列を足す: `base_sha` TEXT NULL、`head_sha` TEXT NULL、`ci_status` TEXT NULL（`CI_STATUSES = ["pending", "passed", "failed"]`、CHECK `ci_status IN ('pending', 'passed', 'failed')`）、`ci_deadline` INTEGER NULL、`ci_event_at` INTEGER NULL、索引 `jobs_status_ci_status_idx(status, ci_status)`。`pnpm exec drizzle-kit generate --name ci_feedback` で `drizzle/0004_ci_feedback.sql` を作り、`src/queue/schema.test.ts` に CHECK（不正な `ci_status` を拒む）のテストを足す
-- [ ] T004 [P] `src/github/port.ts` に contracts/module-api.md の `getPullRequest`・`getCheckRuns`・`getCheckRunLog` と data-model.md 5章の `PullRequestState`・`CheckRunInfo`・`CiEvent` を足し、`src/github/testing.ts` の偽の GitHub に同じ操作を足す（`checkRuns`（sha → 一覧）・`checkLogs`（id → 文）を持たせ、PR に `state`・`merged`・`headSha` を持ち、`mergePullRequest(number)`・`closePullRequest(number)`・`setCheckRuns(sha, runs)` で状態を変えられる）
-- [ ] T005 [P] `src/github/client.ts` に本物の `getPullRequest`（`GET /repos/{o}/{r}/pulls/{n}`、`auto_merge` が null でなければ `autoMerge: true`）・`getCheckRuns`（`octokit.paginate` で `GET /repos/{o}/{r}/commits/{sha}/check-runs`、`filter: "latest"`、`per_page: 100`）・`getCheckRunLog`（`app.slug == "github-actions"` なら `GET /repos/{o}/{r}/actions/jobs/{id}/logs`、取れなければ `GET /repos/{o}/{r}/check-runs/{id}` の `output.title`・`summary`・`text` を改行でつなぐ。どれもなければ・例外なら `undefined`）を足す
-- [ ] T006 `src/queue/jobs.test.ts` に contracts/module-api.md の `claimNextJob`・`noteCiEvent`・`listCiJobsToCheck`・`markPendingCiJobs` のテストを先に書く: やり直しを待つ（`ci_waiting`・`ci_status = 'failed'`）ジョブが queued より先に `implementing` になり、`ci_retries` が1増え、`ci_status`・`ci_deadline` が NULL、`state_changed` の detail に `reason: "ci_retry"`。なければ queued を planning。`noteCiEvent` は check_suite で branch と head_sha が一致する `ci_waiting` だけ、pull_request_closed で pr_number が一致する `ci_waiting` だけに `ci_event_at` を入れ `ci_event` を記録する。`listCiJobsToCheck` は `ci_event_at` あり、または `ci_status = 'pending'` で `ci_deadline <= now` を古い順に返し、`passed` で期限切れのものは返さない
-- [ ] T007 `src/queue/jobs.ts` に T006 の関数を実装する（即時トランザクション、条件付きの UPDATE … RETURNING）。`INTERRUPTIBLE_STATUSES` の説明のコメントを「`ci_waiting` は 009 の見回りで扱う」に直す
-- [ ] T008 [P] `src/pipeline/state.ts` の `TransitionFields` に `base_sha`・`head_sha`・`ci_status`・`ci_deadline`・`ci_event_at` を足す
-- [ ] T009 `src/pipeline/report.ts` の `FAILURE_KINDS` に `ci_failed`・`ci_timeout`・`ci_unfixed`・`pr_closed` と `describeKind` の文（contracts/report.md 2章）を足し、`renderFailureReport` に PR の行（`pr_number` があるとき）・CI のやり直しの行（`ci_retries / 上限`）・失敗したチェック（`failedChecks`、最大 10 件）を足す。`src/pipeline/report.test.ts` に文面のテストを足す
+- [X] T003 `src/queue/schema.ts` の `jobs` に data-model.md 1章の列を足す: `base_sha` TEXT NULL、`head_sha` TEXT NULL、`ci_status` TEXT NULL（`CI_STATUSES = ["pending", "passed", "failed"]`、CHECK `ci_status IN ('pending', 'passed', 'failed')`）、`ci_deadline` INTEGER NULL、`ci_event_at` INTEGER NULL、索引 `jobs_status_ci_status_idx(status, ci_status)`。`pnpm exec drizzle-kit generate --name ci_feedback` で `drizzle/0004_ci_feedback.sql` を作り、`src/queue/schema.test.ts` に CHECK（不正な `ci_status` を拒む）のテストを足す
+- [X] T004 [P] `src/github/port.ts` に contracts/module-api.md の `getPullRequest`・`getCheckRuns`・`getCheckRunLog` と data-model.md 5章の `PullRequestState`・`CheckRunInfo`・`CiEvent` を足し、`src/github/testing.ts` の偽の GitHub に同じ操作を足す（`checkRuns`（sha → 一覧）・`checkLogs`（id → 文）を持たせ、PR に `state`・`merged`・`headSha` を持ち、`mergePullRequest(number)`・`closePullRequest(number)`・`setCheckRuns(sha, runs)` で状態を変えられる）
+- [X] T005 [P] `src/github/client.ts` に本物の `getPullRequest`（`GET /repos/{o}/{r}/pulls/{n}`、`auto_merge` が null でなければ `autoMerge: true`）・`getCheckRuns`（`octokit.paginate` で `GET /repos/{o}/{r}/commits/{sha}/check-runs`、`filter: "latest"`、`per_page: 100`）・`getCheckRunLog`（`app.slug == "github-actions"` なら `GET /repos/{o}/{r}/actions/jobs/{id}/logs`、取れなければ `GET /repos/{o}/{r}/check-runs/{id}` の `output.title`・`summary`・`text` を改行でつなぐ。どれもなければ・例外なら `undefined`）を足す
+- [X] T006 `src/queue/jobs.test.ts` に contracts/module-api.md の `claimNextJob`・`noteCiEvent`・`listCiJobsToCheck`・`markPendingCiJobs` のテストを先に書く: やり直しを待つ（`ci_waiting`・`ci_status = 'failed'`）ジョブが queued より先に `implementing` になり、`ci_retries` が1増え、`ci_status`・`ci_deadline` が NULL、`state_changed` の detail に `reason: "ci_retry"`。なければ queued を planning。`noteCiEvent` は check_suite で branch と head_sha が一致する `ci_waiting` だけ、pull_request_closed で pr_number が一致する `ci_waiting` だけに `ci_event_at` を入れ `ci_event` を記録する。`listCiJobsToCheck` は `ci_event_at` あり、または `ci_status = 'pending'` で `ci_deadline <= now` を古い順に返し、`passed` で期限切れのものは返さない
+- [X] T007 `src/queue/jobs.ts` に T006 の関数を実装する（即時トランザクション、条件付きの UPDATE … RETURNING）。`INTERRUPTIBLE_STATUSES` の説明のコメントを「`ci_waiting` は 009 の見回りで扱う」に直す
+- [X] T008 [P] `src/pipeline/state.ts` の `TransitionFields` に `base_sha`・`head_sha`・`ci_status`・`ci_deadline`・`ci_event_at` を足す
+- [X] T009 `src/pipeline/report.ts` の `FAILURE_KINDS` に `ci_failed`・`ci_timeout`・`ci_unfixed`・`pr_closed` と `describeKind` の文（contracts/report.md 2章）を足し、`renderFailureReport` に PR の行（`pr_number` があるとき）・CI のやり直しの行（`ci_retries / 上限`）・失敗したチェック（`failedChecks`、最大 10 件）を足す。`src/pipeline/report.test.ts` に文面のテストを足す
 
 **Checkpoint**: スキーマ・GitHub 層・キューが揃う。007・008 の既存のテストが通ること
 
@@ -65,7 +65,7 @@ description: "Task list for 009 ci-feedback"
 ### Implementation for User Story 1
 
 - [ ] T014 [US1] `src/github/events.ts` に `toCiEvent` を実装する（TypeBox で必要な項目だけを検証、余分な項目は許す）。T010 を通す
-- [ ] T015 [US1] `src/pipeline/report.ts` に `renderCiSection(events)`・`replaceCiSection(body, section)` を足し（contracts/report.md 1章。印は `<!-- factory:ci -->`・`<!-- /factory:ci -->`、記録がなければ「CI の結果を待っています」）、`renderShipReport` の末尾の印を空の CI の欄に置き換える。008 の `report.test.ts` の該当の期待を直す
+- [X] T015 [US1] `src/pipeline/report.ts` に `renderCiSection(events)`・`replaceCiSection(body, section)` を足し（contracts/report.md 1章。印は `<!-- factory:ci -->`・`<!-- /factory:ci -->`、記録がなければ「CI の結果を待っています」）、`renderShipReport` の末尾の印を空の CI の欄に置き換える。008 の `report.test.ts` の該当の期待を直す
 - [ ] T016 [US1] `src/pipeline/ci.ts` に `concludeCi`・`checkCiJob`・`refreshCiSection`・`createCiMonitor` を実装する（research R3。評価の前に読んだ `ci_event_at` を `WHERE ci_event_at = <値>` で消す、`ci_status` の更新は `status = 'ci_waiting' AND ci_status = 'pending' AND head_sha = <評価した commit>` の条件付き、記録と本文は更新が1行を変えたときだけ。起動時に `markPendingCiJobs`。ループは `wake` で待ちを打ち切り、`stop` は評価中の1件を待つ）。T011・T012 を通す（失敗の扱いは US2・US3 で足すので、ここでは failure を `ci_status = 'failed'` にするだけ）
 - [ ] T017 [US1] `src/http/webhook.ts` で `X-GitHub-Event` が `check_suite`・`pull_request` のとき `toCiEvent` → `noteCiEvent` → 応答のあと `wakeCi()`（`WebhookDeps` に `wakeCi?: () => void` を足す）にする。T013 を通す
 - [ ] T018 [US1] `src/pipeline/ship.ts` の最初の出荷で、`transitionPath` の fields に `base_sha`（commit の親）・`head_sha`・`ci_status: "pending"`・`ci_deadline: now + ci_wait_timeout_minutes` を足し、`shipped` の記録に `plan`・`plan_text` を足す（research R10・R11）。`src/pipeline/ship.test.ts` に期待を足す
@@ -89,7 +89,7 @@ description: "Task list for 009 ci-feedback"
 - [ ] T023 [P] [US2] `src/pipeline/ship.test.ts` に更新の形のテストを書く（research R11）: 追加の commit が作業ブランチに早送りで push され PR は作られない、出荷前チェックの diff の大きさが PR の変更全体、auto-merge の PR が条件を外れたら Draft、Draft は Draft のまま、変更なしで `failed`（`ci_unfixed`）・push なし、PR が閉じていれば `failed`（`pr_closed`）・push なし、状態が `judging` → `pr_opened` → `ci_waiting` で `head_sha`・`ci_status = 'pending'`・`ci_deadline` が新しくなる、`ci_retry_pushed` の記録、Issue にコメントしない
 - [ ] T024 [P] [US2] `src/pipeline/worker.test.ts` にやり直しのテストを書く: やり直しを先に取り出す、005 の入口に `plan`・`planObject`・`baseCommit`・`initialFeedback`（失敗したチェックの名前とログ）・`preflightChecks: true` が渡る、期限が取り出した時刻 ＋ `job_timeout_minutes`、合格で同じ PR に追加の push、不合格で `failed`（`judge_rejected`）と PR の Draft への変更、計画の記録がなければ `internal_error`
 - [ ] T025 [P] [US2] `src/pipeline/ci.test.ts` に失敗の扱いのテストを足す: 上限未満 → `ci_status = 'failed'`・Worker の起こし・欄に「❌ 失敗」、上限（`ci_retries` が上限と同じ）→ `failed`（`ci_failed`）・Issue に失敗したチェックの名前・PR を Draft・欄に「🛑」、`ci_retries = 0` の設定で1回目の失敗から `failed`
-- [ ] T026 [P] [US2] `src/pipeline/report.test.ts` に `failJob` の引き渡しのテストを足す（research R13）: `pr_number` のあるジョブは報告のあとに Draft へ変え `ci_gave_up` を記録し欄を書き直す、すでに Draft なら変えない、`pr_closed` では変えない、Draft でも auto-merge でもない PR（008 の `unsettled`）も Draft に変える、Draft への変更の失敗は `handover_failed` でジョブは `failed`
+- [X] T026 [P] [US2] `src/pipeline/report.test.ts` に `failJob` の引き渡しのテストを足す（research R13）: `pr_number` のあるジョブは報告のあとに Draft へ変え `ci_gave_up` を記録し欄を書き直す、すでに Draft なら変えない、`pr_closed` では変えない、Draft でも auto-merge でもない PR（008 の `unsettled`）も Draft に変える、Draft への変更の失敗は `handover_failed` でジョブは `failed`
 
 ### Implementation for User Story 2
 
@@ -97,7 +97,7 @@ description: "Task list for 009 ci-feedback"
 - [ ] T028 [US2] `src/github/git.ts` に `cloneBranchForRetry` を実装する（`clone --quiet --single-branch --branch <branch>`、トークンは環境変数、`cat-file -e <base>^{commit}`）。T021 を通す
 - [ ] T029 [US2] `src/pipeline/run.ts` に `planObject`・`baseCommit`・`initialFeedback`・`preflightChecks` を実装する（research R9。軌跡の `check_run` は `round: 0`）。T022 を通す
 - [ ] T030 [US2] `src/pipeline/ship.ts` に `update` の形を実装する（research R11）。T023 を通す
-- [ ] T031 [US2] `src/pipeline/report.ts` の `failJob` に引き渡しを実装する（research R13）。T026 を通す
+- [X] T031 [US2] `src/pipeline/report.ts` の `failJob` に引き渡しを実装する（research R13）。T026 を通す
 - [ ] T032 [US2] `src/pipeline/ci.ts` の失敗の扱い（上限の判断、`failJob(ci_failed, failedChecks)`、`wakeWorker`）を実装する。T025 を通す
 - [ ] T033 [US2] `src/pipeline/worker.ts` を `claimNextJob` に替え、`ci_retry` の処理（`cloneBranchForRetry` → インストール → 最新の `shipped` の計画 → `getCheckRuns` と最大 5 件のログ → `ciFeedback`（diff は `gitDiffSource.diff(workdir, base_sha)`）→ 005 の入口 → `shipJob({ update })` か `failJob`）を足す。T024 を通す
 
