@@ -40,7 +40,7 @@ pnpm run eval:compare -- data/evals-dev/<前>.json data/evals-dev/<後>.json
 `factory.toml` の `[models].verifier_alt = "gemma-4"` を有効にしてから:
 
 ```sh
-SAKURA_API_KEY=... pnpm run eval:dev -- --allow-sakura --max-requests 300
+SAKURA_AI_API_KEY=... pnpm run eval:dev -- --allow-sakura --max-requests 300
 ```
 
 期待: `--- verifiers ---` に Qwen3.6 と gemma-4 の一致率・誤合格・誤不合格・トークン・応答時間が並ぶ。
