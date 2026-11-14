@@ -7,8 +7,10 @@
 | `FACTORY_DOMAIN` | 例: `factory.<運用者のドメイン>` | `factory.test` | ファクトリー（GitHub の Webhook の宛先） |
 | `STAGING_DOMAIN` | 例: `staging.<運用者のドメイン>` | `staging.test` | ステージングのデモアプリ |
 | `CADDY_TLS` | ACME の連絡先のメールアドレス | `internal` | `tls` ディレクティブの引数にそのまま入る |
+| `STATUS_USER` | 運用者が決める | `rehearsal` | `/status` の Basic 認証の利用者名（011） |
+| `STATUS_PASSWORD_HASH` | `caddy hash-password` の出力を単一引用符で囲む | 予行演習で作ったハッシュ | bcrypt のハッシュ。平文は置かない（011） |
 
-- 3つとも必須。リポジトリには値を書かない（ひな形は空）。`setup.sh` は空なら止まる
+- 5つとも必須。リポジトリには値を書かない（ひな形は空）。`setup.sh` は空なら止まる
 
 ## `deploy/Caddyfile`
 
@@ -17,7 +19,13 @@
 	tls {$CADDY_TLS}
 	encode zstd gzip
 
-	@factory path /healthz /webhook /status
+	handle /status {
+		basic_auth {
+			{$STATUS_USER} {$STATUS_PASSWORD_HASH}
+		}
+		reverse_proxy 127.0.0.1:8787
+	}
+	@factory path /healthz /webhook
 	handle @factory {
 		reverse_proxy 127.0.0.1:8787
 	}
@@ -46,10 +54,11 @@
 | 要求 | 結果 |
 |---|---|
 | `https://$FACTORY_DOMAIN/healthz` | ファクトリーの応答 |
+| `https://$FACTORY_DOMAIN/status` | 認証なし・誤りは Caddy が `401`。正しい認証ならファクトリーの応答（011 の [caddy.md](../../011-status-dashboard/contracts/caddy.md)） |
 | `https://$FACTORY_DOMAIN/その他` | Caddy が `404`（ファクトリーに届かない） |
 | `https://$STAGING_DOMAIN/...` | デモアプリの応答。止まっていれば Caddy が `502` |
 | `http://...` | `308` で `https://` へ（Caddy の自動 HTTPS） |
 
 ## 検査（`pnpm run deploy:lint`）
 
-- `docker run --rm caddy:2.11.9` に Caddyfile を読ませ、偽の環境変数（`factory.test`・`staging.test`・`internal`）で `caddy validate --adapter caddyfile` と `caddy fmt --diff` を実行する。どちらかが失敗したら失敗
+- `docker run --rm caddy:2.11.9` に Caddyfile を読ませ、偽の環境変数（`factory.test`・`staging.test`・`internal`・検査用の利用者名と固定のハッシュ）で `caddy validate --adapter caddyfile` と `caddy fmt --diff` を実行する。どちらかが失敗したら失敗
