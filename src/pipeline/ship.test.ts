@@ -211,7 +211,23 @@ describe("shipJob: auto-merge と Draft", () => {
       pr_number: 1,
       decision: "auto_merge",
       unmet: [],
+      plan: { work_type: "docs" },
+      plan_text: "",
     });
+  });
+
+  test("CI の待ちの列（base_sha・head_sha・ci_status・ci_deadline）を書き、本文に空の CI の欄（009）", async () => {
+    const s = await setup();
+    await shipJob(s.deps, s.input());
+    const main = await execa("git", ["-C", s.bare, "rev-parse", "main"]);
+    expect(s.jobRow()).toMatchObject({
+      base_sha: main.stdout.trim(),
+      head_sha: await s.remoteBranch(),
+      ci_status: "pending",
+      ci_deadline: 1000 + 30 * 60_000,
+      ci_event_at: null,
+    });
+    expect(s.github.pullRequests[0]?.body).toContain("<!-- factory:ci -->");
   });
 
   test("作業の種類が許可にないと Draft で、auto-merge は呼ばない", async () => {
@@ -473,5 +489,97 @@ describe("shipJob: 自動マージの条件の設定（US4）", () => {
       github: { issue: { title: "t", body: "b", labels: ["Hold"] } },
     });
     expect(await shipJob(t.deps, t.input())).toMatchObject({ decision: "draft" });
+  });
+});
+
+describe("shipJob: CI 失敗後のやり直し（009 update）", () => {
+  /** 最初の出荷を済ませ、やり直しの工程の終わり（judging、ci_retries = 1）にそろえる */
+  async function shipped(options: SetupOptions = {}) {
+    const s = await setup(options);
+    const first = await shipJob(s.deps, s.input());
+    expect(first.kind).toBe("shipped");
+    const firstHead = await s.remoteBranch();
+    s.db.update(jobs).set({ status: "judging", ci_retries: 1, ci_status: null }).run();
+    const job = s.jobRow();
+    const retryInput = (extra: Partial<ShipInput> = {}) =>
+      s.input({
+        job,
+        update: { baseSha: job.base_sha as string, prNumber: 1 },
+        ...extra,
+      });
+    return { ...s, firstHead, job, retryInput };
+  }
+
+  test("追加の commit を早送りで push し、PR は作らない。ci_waiting に戻り CI の列が新しくなる", async () => {
+    const s = await shipped();
+    writeFileSync(join(s.workdir, "README.md"), "# demo\n\n`pnpm run check` で検査する（直した）\n");
+    const out = await shipJob(s.deps, s.retryInput());
+    expect(out).toMatchObject({ kind: "shipped", prNumber: 1, decision: "auto_merge" });
+    const head = await s.remoteBranch();
+    expect(head).not.toBe(s.firstHead);
+    const parent = await execa("git", ["-C", s.bare, "rev-parse", `${head}^`]);
+    expect(parent.stdout.trim()).toBe(s.firstHead);
+    expect(s.github.count("createPullRequest")).toBe(1);
+    expect(s.github.comments).toHaveLength(1);
+    expect(s.jobRow()).toMatchObject({
+      status: "ci_waiting",
+      head_sha: head,
+      ci_status: "pending",
+    });
+    const transitions = s
+      .events()
+      .filter((e) => e.type === "state_changed")
+      .map((e) => [e.from_status, e.to_status]);
+    expect(transitions.slice(-2)).toEqual([
+      ["judging", "pr_opened"],
+      ["pr_opened", "ci_waiting"],
+    ]);
+    expect(s.notes("ci_retry_pushed")).toEqual([
+      { kind: "ci_retry_pushed", head_sha: head, ci_retry: 1, decision: "auto_merge", unmet: [] },
+    ]);
+    const body = s.github.pullRequests[0]?.body ?? "";
+    expect(body).toContain("🔁 やり直しを push");
+    expect(body).toContain("Refs #7");
+  });
+
+  test("PR の変更全体が diff の上限を超えたら、auto-merge の PR を Draft に変える", async () => {
+    const s = await shipped({ configExtra: "[auto_merge]\nmax_diff_lines = 4" });
+    expect(s.github.pullRequests[0]?.autoMerge).toBe(true);
+    writeFileSync(join(s.workdir, "NOTES.md"), "1\n2\n3\n");
+    const out = await shipJob(s.deps, s.retryInput());
+    expect(out).toMatchObject({ kind: "shipped", decision: "draft" });
+    expect(s.github.pullRequests[0]?.draft).toBe(true);
+    expect(s.notes("ci_retry_pushed")[0]).toMatchObject({ decision: "draft", unmet: ["diff_size"] });
+  });
+
+  test("Draft の PR は条件を満たしても Draft のまま", async () => {
+    const s = await shipped();
+    const pr = s.github.pullRequests[0];
+    if (pr) {
+      pr.draft = true;
+      pr.autoMerge = false;
+    }
+    writeFileSync(join(s.workdir, "README.md"), "# demo\n\n直した\n");
+    const out = await shipJob(s.deps, s.retryInput());
+    expect(out).toMatchObject({ kind: "shipped", decision: "draft" });
+    expect(s.github.count("enableAutoMerge")).toBe(1);
+    expect(s.github.count("convertToDraft")).toBe(0);
+  });
+
+  test("前回の push からの変更がなければ ci_unfixed で push しない", async () => {
+    const s = await shipped();
+    const out = await shipJob(s.deps, s.retryInput());
+    expect(out).toEqual({ kind: "failed", failure: "ci_unfixed" });
+    expect(await s.remoteBranch()).toBe(s.firstHead);
+    expect(s.jobRow().failure_reason).toMatch(/^ci_unfixed: /);
+  });
+
+  test("PR が閉じていれば pr_closed で push しない", async () => {
+    const s = await shipped();
+    s.github.closePullRequest(1);
+    writeFileSync(join(s.workdir, "README.md"), "# demo\n\n直した\n");
+    const out = await shipJob(s.deps, s.retryInput());
+    expect(out).toEqual({ kind: "failed", failure: "pr_closed" });
+    expect(await s.remoteBranch()).toBe(s.firstHead);
   });
 });

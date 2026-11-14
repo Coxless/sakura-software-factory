@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { PayloadError, parseAgentCommand, toAgentRequest } from "./events.ts";
+import { PayloadError, parseAgentCommand, toAgentRequest, toCiEvent } from "./events.ts";
 
 const fixture = (name: string): Record<string, unknown> =>
   JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", `${name}.json`), "utf8"));
@@ -111,5 +111,60 @@ describe("toAgentRequest", () => {
     delete (payload.comment as Record<string, unknown>).id;
     expect(() => toAgentRequest("issue_comment", "d", payload, 100)).toThrow(PayloadError);
     expect(() => toAgentRequest("issue_comment", "d", "text", 100)).toThrow(PayloadError);
+  });
+});
+
+describe("toCiEvent（009）", () => {
+  test("check_suite の completed は check_suite の知らせ", () => {
+    expect(toCiEvent("check_suite", fixture("check_suite.completed"))).toEqual({
+      kind: "event",
+      event: {
+        kind: "check_suite",
+        repo: "octo-org/demo",
+        headBranch: "agent/issue-7-job-1",
+        headSha: "0123456789abcdef0123456789abcdef01234567",
+      },
+    });
+  });
+
+  test("head_branch が null でもよい", () => {
+    const payload = fixture("check_suite.completed");
+    (payload.check_suite as Record<string, unknown>).head_branch = null;
+    const result = toCiEvent("check_suite", payload);
+    expect(result).toMatchObject({ kind: "event", event: { headBranch: null } });
+  });
+
+  test("pull_request の closed はマージ済みかどうかと一緒に返す", () => {
+    expect(toCiEvent("pull_request", fixture("pull_request.closed.merged"))).toEqual({
+      kind: "event",
+      event: { kind: "pull_request_closed", repo: "octo-org/demo", prNumber: 3, merged: true },
+    });
+    const payload = fixture("pull_request.closed.merged");
+    (payload.pull_request as Record<string, unknown>).merged = null;
+    expect(toCiEvent("pull_request", payload)).toMatchObject({ event: { merged: false } });
+  });
+
+  test.each([
+    ["check_suite", "requested"],
+    ["check_suite", "rerequested"],
+    ["pull_request", "opened"],
+    ["pull_request", "synchronize"],
+  ])("%s の %s は ignored（action）", (event, action) => {
+    const payload = fixture(
+      event === "check_suite" ? "check_suite.completed" : "pull_request.closed.merged",
+    );
+    payload.action = action;
+    expect(toCiEvent(event, payload)).toEqual({ kind: "ignored", reason: "action" });
+  });
+
+  test("ほかのイベントは ignored（event）", () => {
+    expect(toCiEvent("push", {})).toEqual({ kind: "ignored", reason: "event" });
+  });
+
+  test("必要な項目がなければ PayloadError", () => {
+    const payload = fixture("check_suite.completed");
+    delete (payload.check_suite as Record<string, unknown>).head_sha;
+    expect(() => toCiEvent("check_suite", payload)).toThrow(PayloadError);
+    expect(() => toCiEvent("pull_request", { action: "closed" })).toThrow(PayloadError);
   });
 });

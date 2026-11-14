@@ -1,0 +1,14 @@
+{
+  "action": "completed",
+  "check_suite": {
+    "id": 5001,
+    "head_branch": "agent/issue-7-job-1",
+    "head_sha": "0123456789abcdef0123456789abcdef01234567",
+    "status": "completed",
+    "conclusion": "failure",
+    "app": { "slug": "github-actions" },
+    "pull_requests": [{ "number": 3 }]
+  },
+  "repository": { "full_name": "octo-org/demo" },
+  "sender": { "login": "github-actions[bot]", "type": "Bot" }
+}

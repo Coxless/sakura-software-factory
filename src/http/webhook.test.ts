@@ -63,6 +63,7 @@ function setup(
     ...options.github,
   });
   let wakes = 0;
+  let ciWakes = 0;
   const webhook = createWebhookHandler({
     db: handle.db,
     config: options.config ?? CONFIG,
@@ -73,6 +74,9 @@ function setup(
       wakes += 1;
     },
     now: () => NOW,
+    wakeCi: () => {
+      ciWakes += 1;
+    },
     ...(options.permissionTimeoutMs === undefined
       ? {}
       : { permissionTimeoutMs: options.permissionTimeoutMs }),
@@ -83,7 +87,7 @@ function setup(
     await webhook.idle();
     return res;
   };
-  return { app, post, handle, github, log, wakes: () => wakes, webhook };
+  return { app, post, handle, github, log, wakes: () => wakes, ciWakes: () => ciWakes, webhook };
 }
 
 const jobCount = (handle: ReturnType<typeof migratedMemoryDb>) =>
@@ -390,5 +394,98 @@ describe("POST /webhook: 依頼の判定と受付（contracts/webhook.md 5〜10�
       expect.objectContaining({ level: 30, delivery: "d-log", result: "queued" }),
     );
     expect(log.text()).not.toContain("pnpm の場合");
+  });
+});
+
+describe("POST /webhook: CI の知らせ（009 contracts/webhook.md）", () => {
+  const HEAD = "0123456789abcdef0123456789abcdef01234567";
+
+  function withWaitingJob(overrides: Partial<typeof jobs.$inferInsert> = {}) {
+    const ctx = setup();
+    const job = ctx.handle.db
+      .insert(jobs)
+      .values({
+        repo: "octo-org/demo",
+        issue_number: 7,
+        trigger_comment_id: 1,
+        requested_by: "octo-requester",
+        instruction: "直して",
+        status: "ci_waiting",
+        branch: "agent/issue-7-job-1",
+        pr_number: 3,
+        head_sha: HEAD,
+        ci_status: "pending",
+        created_at: 1,
+        updated_at: 1,
+        ...overrides,
+      })
+      .returning()
+      .get();
+    return { ...ctx, job };
+  }
+
+  test("結び付く check_suite は 202 ci_noted、印を付けて見回りを起こし、GitHub を呼ばない", async () => {
+    const { post, handle, github, ciWakes, job } = withWaitingJob();
+    const res = await post(
+      signedRequest(SECRET, "check_suite", fixture("check_suite.completed"), "d-ci"),
+    );
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ result: "ci_noted", job: job.id });
+    expect(handle.db.select().from(jobs).get()?.ci_event_at).toBe(NOW);
+    expect(ciWakes()).toBe(1);
+    expect(github.calls).toEqual([]);
+    const events = handle.db.select().from(jobEvents).all();
+    expect(JSON.parse(events[0]?.detail ?? "{}")).toMatchObject({
+      kind: "ci_event",
+      event: "check_suite",
+      delivery: "d-ci",
+    });
+  });
+
+  test("head_sha が違う・ジョブがない check_suite は 202 ignored で見回りを起こさない", async () => {
+    const { post, ciWakes } = withWaitingJob({ head_sha: "other" });
+    const res = await post(signedRequest(SECRET, "check_suite", fixture("check_suite.completed")));
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ result: "ignored" });
+    expect(ciWakes()).toBe(0);
+  });
+
+  test("requested の check_suite は ignored", async () => {
+    const { post, handle } = withWaitingJob();
+    const payload = fixture("check_suite.completed");
+    payload.action = "requested";
+    const res = await post(signedRequest(SECRET, "check_suite", payload));
+    expect(await res.json()).toEqual({ result: "ignored" });
+    expect(handle.db.select().from(jobs).get()?.ci_event_at).toBeNull();
+  });
+
+  test("PR の番号が一致する pull_request の closed は ci_noted", async () => {
+    const { post, job } = withWaitingJob();
+    const res = await post(
+      signedRequest(SECRET, "pull_request", fixture("pull_request.closed.merged")),
+    );
+    expect(await res.json()).toEqual({ result: "ci_noted", job: job.id });
+  });
+
+  test("項目が欠けていれば 400、署名が違えば 401", async () => {
+    const { post, app } = withWaitingJob();
+    const payload = fixture("check_suite.completed");
+    delete payload.check_suite;
+    expect((await post(signedRequest(SECRET, "check_suite", payload))).status).toBe(400);
+    const res = await app.request(
+      "/webhook",
+      signedRequest("wrong-secret", "check_suite", fixture("check_suite.completed")),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  test("DB に書けなければ 500", async () => {
+    const { post, handle } = withWaitingJob();
+    handle.sqlite.exec(
+      "CREATE TRIGGER fail_update BEFORE UPDATE ON jobs BEGIN SELECT RAISE(ABORT, 'disk full'); END;",
+    );
+    const res = await post(signedRequest(SECRET, "check_suite", fixture("check_suite.completed")));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "internal_error" });
   });
 });

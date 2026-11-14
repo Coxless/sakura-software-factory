@@ -1,14 +1,14 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { FactoryConfig } from "../config.ts";
-import { PayloadError, toAgentRequest } from "../github/events.ts";
+import { PayloadError, toAgentRequest, toCiEvent } from "../github/events.ts";
 import { type AgentRequest, type GitHubPort, WRITE_PERMISSIONS } from "../github/port.ts";
 import { verifySignature } from "../github/signature.ts";
 import { canAcceptNewJob } from "../llm/budget.ts";
 import type { Logger } from "../log.ts";
 import { renderBudgetExhausted, renderUsage } from "../pipeline/report.ts";
 import type { Db } from "../queue/db.ts";
-import { enqueueJob, markIntakeStopped } from "../queue/jobs.ts";
+import { enqueueJob, markIntakeStopped, noteCiEvent } from "../queue/jobs.ts";
 import { jobEvents } from "../queue/schema.ts";
 
 export interface WebhookDeps {
@@ -23,6 +23,8 @@ export interface WebhookDeps {
   now?: () => number;
   /** 権限の確認の時間の上限（既定 5000。research R5） */
   permissionTimeoutMs?: number;
+  /** CI の知らせを結び付けたときに見回りを起こす（009） */
+  wakeCi?: () => void;
 }
 
 export interface WebhookHandler {
@@ -38,6 +40,7 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
 /**
  * POST /webhook（contracts/webhook.md）。判定の順: 大きさ → 署名 → JSON → ping → 対象の絞り込み → @agent →
  * 許可ユーザーと権限 → 本文が空でない → 予算 → 積む。リアクション・コメント・wake は応答のあとに回す（SC-004）。
+ * check_suite・pull_request は JSON のあとで分け、ci_waiting のジョブに印を付けるだけにする（009 contracts/webhook.md）。
  */
 export function createWebhookHandler(deps: WebhookDeps): WebhookHandler {
   const { db, config, logger, github, secret, wake } = deps;
@@ -88,6 +91,38 @@ export function createWebhookHandler(deps: WebhookDeps): WebhookHandler {
       } catch {
         logger.warn({ delivery, event }, "webhook: JSON として解釈できません");
         return c.json({ error: "invalid_payload" }, 400, NO_STORE);
+      }
+
+      if (event === "check_suite" || event === "pull_request") {
+        let ci: ReturnType<typeof toCiEvent>;
+        try {
+          ci = toCiEvent(event, payload);
+        } catch (error) {
+          if (!(error instanceof PayloadError)) throw error;
+          logger.warn({ delivery, event }, `webhook: ${error.message}`);
+          return c.json({ error: "invalid_payload" }, 400, NO_STORE);
+        }
+        if (ci.kind === "ignored") {
+          logger.info({ delivery, event, result: "ignored", reason: ci.reason }, "webhook");
+          return c.json({ result: "ignored" }, 202, NO_STORE);
+        }
+        let noted: ReturnType<typeof noteCiEvent>;
+        try {
+          noted = noteCiEvent(db, ci.event, now(), delivery);
+        } catch (error) {
+          logger.error(
+            { delivery, event, err: error },
+            "webhook: CI の知らせを記録できません（App の Recent Deliveries から再送できます）",
+          );
+          return c.json({ error: "internal_error" }, 500, NO_STORE);
+        }
+        if (!noted) {
+          logger.info({ delivery, event, result: "ignored", reason: "no_job" }, "webhook");
+          return c.json({ result: "ignored" }, 202, NO_STORE);
+        }
+        logger.info({ delivery, event, result: "ci_noted", job: noted.id }, "webhook");
+        defer("見回りの起こし", delivery, async () => deps.wakeCi?.());
+        return c.json({ result: "ci_noted", job: noted.id }, 202, NO_STORE);
       }
 
       let parsed: ReturnType<typeof toAgentRequest>;

@@ -1,0 +1,12 @@
+{
+  "action": "closed",
+  "number": 3,
+  "pull_request": {
+    "number": 3,
+    "state": "closed",
+    "merged": true,
+    "head": { "ref": "agent/issue-7-job-1", "sha": "0123456789abcdef0123456789abcdef01234567" }
+  },
+  "repository": { "full_name": "octo-org/demo" },
+  "sender": { "login": "octo-requester", "type": "User" }
+}
