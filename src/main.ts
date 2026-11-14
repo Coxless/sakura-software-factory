@@ -153,6 +153,11 @@ export async function startFactory(
         sqlite: handle.sqlite,
         logger,
         ...(webhook ? { webhook: webhook.app } : {}),
+        status: {
+          db: handle.db,
+          timeZone: config.budget.timezone,
+          monthlyLimit: config.budget.monthly_requests,
+        },
       }),
       host,
       port,

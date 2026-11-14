@@ -29,6 +29,7 @@
     "ship:dev": "node src/ship-dev.ts",
     "eval:dev": "node src/eval-dev.ts",
     "eval:compare": "node src/eval-compare.ts",
+    "status:dev": "node src/status-dev.ts",
     "secrets:scan": "gitleaks git --redact --no-banner --config .gitleaks.toml .",
     "deploy:lint": "bash deploy/scripts/lint.sh",
     "deploy:rehearsal": "bash deploy/rehearsal/run.sh"

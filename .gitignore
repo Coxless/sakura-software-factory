@@ -7,3 +7,5 @@ data/
 coverage/
 *.log
 .env*
+# Workshop の中の pnpm が作るストア
+.pnpm-store/
