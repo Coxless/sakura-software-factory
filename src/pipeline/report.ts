@@ -461,12 +461,20 @@ export function renderShipNotice(input: {
   decision: "auto_merge" | "draft" | "unsettled";
   unmet: readonly ConditionName[];
   requests: number;
+  /** 6条件は満たしたが auto-merge を有効にできなかった */
+  autoMergeFailed?: boolean;
 }): string {
+  const reasons = [
+    ...(input.unmet.length > 0 ? [`満たさなかった条件: ${input.unmet.join(", ")}`] : []),
+    ...(input.autoMergeFailed
+      ? ["auto-merge を有効にできませんでした。理由は PR の本文に書きました"]
+      : []),
+  ];
   const decision =
     input.decision === "auto_merge"
       ? "auto-merge を予約しました"
       : input.decision === "draft"
-        ? `Draft にしました${input.unmet.length > 0 ? `（満たさなかった条件: ${input.unmet.join(", ")}）` : ""}`
+        ? `Draft にしました${reasons.length > 0 ? `（${reasons.join("。")}）` : ""}`
         : "確定できませんでした";
   return [
     `🏭 ジョブ #${input.jobId} の変更を PR にしました: ${input.prUrl}`,

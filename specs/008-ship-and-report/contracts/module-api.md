@@ -10,7 +10,7 @@ interface GitHubPort {
   getIssue(req: { repo: string; issueNumber: number }): Promise<{ title: string; body: string; labels: string[] }>;
 
   /** commit の作成者に使う App のボット。{ name: "<slug>[bot]", email: "<id>+<slug>[bot]@users.noreply.github.com" } */
-  getBotIdentity(): Promise<{ name: string; email: string }>;
+  getBotIdentity(req: { repo: string }): Promise<{ name: string; email: string }>;
 
   /** PR を作る。draft を作れない（422 で Draft が使えない）ときは DraftUnavailableError */
   createPullRequest(req: { repo: string; head: string; base: string; title: string; body: string; draft: boolean }):
@@ -21,12 +21,15 @@ interface GitHubPort {
 
   /** PR を Draft に変える。失敗は例外 */
   convertToDraft(req: { repo: string; nodeId: string }): Promise<void>;
+
+  /** PR の本文を書き直す（振り分けが PR を作ったときから変わったとき）。失敗は例外 */
+  updatePullRequestBody(req: { repo: string; number: number; body: string }): Promise<void>;
 }
 
 class DraftUnavailableError extends Error {}
 ```
 
-- 本物（`client.ts`）: `getBotIdentity` は App の JWT で `GET /app` → `GET /users/{slug}[bot]`、結果をプロセスの中で覚える。`createPullRequest` は REST、`enableAutoMerge`（`mergeMethod: SQUASH`）と `convertToDraft` は GraphQL
+- 本物（`client.ts`）: `getBotIdentity` は App の JWT で `GET /app`（slug）→ リポジトリのインストールの認証で `GET /users/{slug}[bot]`（App の JWT で呼べるのは `/app` 系だけ）、結果をプロセスの中で覚える。`createPullRequest` は REST、`enableAutoMerge`（`mergeMethod: SQUASH`）と `convertToDraft` は GraphQL
 - 偽物（`testing.ts`）: 呼び出しを記録し、失敗させる操作を指定できる（`failOn`）。作った PR の一覧・auto-merge の状態・Draft の状態を持つ
 
 ## `src/github/git.ts`（commit と push の追加）

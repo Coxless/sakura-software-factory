@@ -92,13 +92,15 @@ export function createGitHubClient(options: { appId: string; privateKey: string 
       return { title: data.title, body: data.body ?? "", labels };
     },
 
-    async getBotIdentity() {
+    async getBotIdentity({ repo }) {
       if (bot) return bot;
-      // App の JWT で自分の slug を引き、ボットのアカウントの ID から noreply のアドレスを作る
+      // App の JWT で自分の slug を引き、ボットのアカウントの ID から noreply のアドレスを作る。
+      // app.octokit（JWT）は /app 系以外を呼べない（auth-app がインストールの認証を求める）ので、/users はインストールで呼ぶ
       const { data: me } = await app.octokit.request("GET /app");
       if (!me?.slug) throw new Error("GitHub App の slug を取得できません");
       const login = `${me.slug}[bot]`;
-      const { data: user } = await app.octokit.request("GET /users/{username}", {
+      const octokit = await installationOctokit(repo);
+      const { data: user } = await octokit.request("GET /users/{username}", {
         username: login,
       });
       bot = { name: login, email: `${user.id}+${login}@users.noreply.github.com` };
@@ -137,6 +139,15 @@ export function createGitHubClient(options: { appId: string; privateKey: string 
         }`,
         { id: nodeId },
       );
+    },
+
+    async updatePullRequestBody({ repo, number, body }) {
+      const octokit = await installationOctokit(repo);
+      await octokit.request("PATCH /repos/{owner}/{repo}/pulls/{pull_number}", {
+        ...split(repo),
+        pull_number: number,
+        body,
+      });
     },
 
     async convertToDraft({ repo, nodeId }) {

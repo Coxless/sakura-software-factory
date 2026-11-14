@@ -77,7 +77,7 @@
   - 題: 計画の概要の1行目を 72 文字で切り詰めたもの。計画がなければ `Issue #<番号> への対応`
   - 作成: `POST /repos/{owner}/{repo}/pulls`（`head` は作業ブランチ、`base` は既定のブランチ、`draft` は振り分けで決める）。本文はまとめレポート（contracts/report.md）
   - auto-merge: GraphQL の `enablePullRequestAutoMerge(input: { pullRequestId, mergeMethod: SQUASH })`。マージの方法は squash に固定する（1つの commit なので、どの方法でも main の履歴は同じ形になる。設定は足さない）
-  - 有効化の失敗（リポジトリで auto-merge が無効、ブランチ保護がない、マージ方法が許されていない など）: GraphQL の `convertPullRequestToDraft` で Draft に変え、GitHub のエラーの文（マスク済み）を振り分けの理由に足す（FR-015）。Draft への変更も失敗したら、PR はそのままにして「自動マージの状態を確定できなかった」と記録する
+  - 有効化の失敗（リポジトリで auto-merge が無効、ブランチ保護がない、マージ方法が許されていない など）: GraphQL の `convertPullRequestToDraft` で Draft に変え、GitHub のエラーの文（マスク済み）を振り分けの理由に足す（FR-015）。PR の本文は作ったときの振り分け（auto-merge）で書いているので、`PATCH /pulls/{n}` で実際の振り分けに書き直す（本物の GitHub で、本文が「auto-merge を有効にしました」のまま Draft になったのを見て足した）。Draft への変更も失敗したら、PR はそのままにして「自動マージの状態を確定できなかった」と記録する
   - Draft を作れない（GitHub の無料プランの非公開リポジトリは Draft PR が使えず `422`）: 通常の PR として作り直し、auto-merge は有効にせず、レポートに「Draft にできないので通常の PR にした。auto-merge は有効にしていない」と書く
 - **ブランチ保護がない場合**: GitHub は必須チェックのないリポジトリで auto-merge を有効にできない（すぐマージできる状態なら `enablePullRequestAutoMerge` が失敗する）ので、上の「有効化の失敗」で Draft になる。ファクトリーが自分でマージすることはない（FR-013）
 - **理由**: 原則 VI。マージの判断は GitHub のブランチ保護に任せる
@@ -85,7 +85,7 @@
 
 ## R7. App のボットの名前とメールアドレス
 
-- **決定**: `GitHubPort.getBotIdentity()` を足す。本物は App の JWT で `GET /app`（`slug`）→ `GET /users/{slug}[bot]`（`id`）を呼び、`{ name: "<slug>[bot]", email: "<id>+<slug>[bot]@users.noreply.github.com" }` を返す。プロセスの中で覚える
+- **決定**: `GitHubPort.getBotIdentity({ repo })` を足す。本物は App の JWT で `GET /app`（`slug`）→ リポジトリのインストールの認証で `GET /users/{slug}[bot]`（`id`）を呼び（App の JWT の `app.octokit` で `/users` を呼ぶと `[@octokit/auth-app] installationId option is required for installation authentication.` になる。実装のあと本物の GitHub で分かった）、`{ name: "<slug>[bot]", email: "<id>+<slug>[bot]@users.noreply.github.com" }` を返す。プロセスの中で覚える
 - **理由**: FR-008。GitHub は noreply のアドレスで commit をボットのアカウントに結び付ける
 - **代替**: `factory.toml` に書く → App を作り直すと食い違う。API で引けば設定が要らない
 

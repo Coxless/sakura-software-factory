@@ -108,8 +108,8 @@ export class FakeGitHub implements GitHubPort {
     return { title: issue.title, body: issue.body, labels: [...(issue.labels ?? [])] };
   }
 
-  async getBotIdentity(): Promise<BotIdentity> {
-    await this.enter("getBotIdentity", {});
+  async getBotIdentity(req: { repo: string }): Promise<BotIdentity> {
+    await this.enter("getBotIdentity", req);
     return (
       this.options.bot ?? {
         name: "factory-app[bot]",
@@ -138,6 +138,13 @@ export class FakeGitHub implements GitHubPort {
     const pr = this.pullRequests.find((p) => p.nodeId === req.nodeId);
     if (!pr) throw new Error(`PR がありません: ${req.nodeId}`);
     pr.autoMerge = true;
+  }
+
+  async updatePullRequestBody(req: { repo: string; number: number; body: string }): Promise<void> {
+    await this.enter("updatePullRequestBody", { repo: req.repo, number: req.number });
+    const pr = this.pullRequests.find((p) => p.number === req.number);
+    if (!pr) throw new Error(`PR がありません: ${req.number}`);
+    pr.body = req.body;
   }
 
   async convertToDraft(req: { repo: string; nodeId: string }): Promise<void> {

@@ -194,6 +194,8 @@ describe("shipJob: auto-merge と Draft", () => {
       title: "README に検査の説明を足す",
     });
     expect(pr?.body).toContain("Refs #7");
+    expect(pr?.body).toContain("auto-merge（squash）を有効にしました");
+    expect(s.github.count("updatePullRequestBody")).toBe(0);
     expect(pr?.body).not.toMatch(/\b(close[sd]?|fix(e[sd])?|resolve[sd]?) #7/i);
 
     const job = s.jobRow();
@@ -225,7 +227,13 @@ describe("shipJob: auto-merge と Draft", () => {
 
   test("auto-merge を有効にできなければ Draft に変え、理由を notes に残す", async () => {
     const s = await setup({
-      github: { fail: { enableAutoMerge: new Error("Pull request is in clean status") } },
+      github: {
+        fail: {
+          enableAutoMerge: new Error(
+            "Request failed due to following response errors:\n - Pull request is in clean status",
+          ),
+        },
+      },
     });
     const out = await shipJob(s.deps, s.input());
     expect(out).toMatchObject({ kind: "shipped", decision: "draft" });
@@ -233,8 +241,16 @@ describe("shipJob: auto-merge と Draft", () => {
     expect(s.github.pullRequests[0]?.draft).toBe(true);
     const shipped = s.notes("shipped")[0];
     expect(shipped?.notes).toEqual([
-      expect.stringContaining("auto_merge_failed: Pull request is in clean status"),
+      "auto_merge_failed: Request failed due to following response errors: - Pull request is in clean status",
     ]);
+    // PR の本文と Issue の知らせが、実際の振り分け（Draft）と理由に書き直されている
+    const body = s.github.pullRequests[0]?.body ?? "";
+    expect(body).toContain("Draft PR にしました");
+    expect(body).toContain(
+      "auto-merge を有効にできませんでした: Request failed due to following response errors: - Pull request is in clean status",
+    );
+    expect(body).not.toContain("auto-merge（squash）を有効にしました");
+    expect(s.github.comments[0]?.body).toContain("auto-merge を有効にできませんでした");
   });
 
   test("auto-merge も Draft への変更も失敗したら unsettled で、ci_waiting に進む", async () => {

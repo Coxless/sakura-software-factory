@@ -76,6 +76,11 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** PR の本文の1行に入れるので、GitHub のエラーの文の改行と連続する空白をまとめる */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 /** commit の diff（gitleaks:allow を探すため）。ホストの git の設定・フックを使わない */
 async function commitDiff(dir: string, base: string, head: string): Promise<string> {
   const result = await execa(
@@ -148,7 +153,7 @@ export async function shipJob(deps: ShipDeps, input: ShipInput): Promise<ShipOut
     // commit（research R2）
     let commit: { base: string; head: string } | undefined;
     try {
-      const author = await github.getBotIdentity();
+      const author = await github.getBotIdentity({ repo: job.repo });
       const title = pullRequestTitle(result.plan, job.issue_number);
       const message = [
         title,
@@ -300,14 +305,27 @@ export async function shipJob(deps: ShipDeps, input: ShipInput): Promise<ShipOut
       try {
         await github.enableAutoMerge({ repo: job.repo, nodeId: pr.nodeId });
       } catch (error) {
-        notes.push(`auto_merge_failed: ${maskWith(errorText(error), secrets)}`);
+        notes.push(`auto_merge_failed: ${oneLine(maskWith(errorText(error), secrets))}`);
         try {
           await github.convertToDraft({ repo: job.repo, nodeId: pr.nodeId });
           decision = "draft";
         } catch (inner) {
-          notes.push(`convert_to_draft_failed: ${maskWith(errorText(inner), secrets)}`);
+          notes.push(`convert_to_draft_failed: ${oneLine(maskWith(errorText(inner), secrets))}`);
           decision = "unsettled";
         }
+      }
+    }
+
+    // 振り分けが PR を作ったときから変わったら、本文を書き直す（本文の振り分けの文と実際をそろえる）
+    if (decision !== initialDecision || notes.some((n) => !n.startsWith("draft_unavailable"))) {
+      try {
+        await github.updatePullRequestBody({
+          repo: job.repo,
+          number: pr.number,
+          body: maskWith(renderShipReport(config, reportInput(decision, notes)), secrets),
+        });
+      } catch (error) {
+        notes.push(`update_body_failed: ${maskWith(errorText(error), secrets)}`);
       }
     }
 
@@ -333,7 +351,7 @@ export async function shipJob(deps: ShipDeps, input: ShipInput): Promise<ShipOut
       unmet: checks.unmet,
       notes,
     });
-    log.info({ pr: pr.number, decision, unmet: checks.unmet }, "PR を作りました");
+    log.info({ pr: pr.number, decision, unmet: checks.unmet, notes }, "PR を作りました");
 
     // Issue に知らせる（1回）
     try {
@@ -347,6 +365,7 @@ export async function shipJob(deps: ShipDeps, input: ShipInput): Promise<ShipOut
             decision,
             unmet: checks.unmet,
             requests,
+            autoMergeFailed: notes.some((n) => n.startsWith("auto_merge_failed: ")),
           }),
           secrets,
         ),

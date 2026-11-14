@@ -24,14 +24,19 @@ export interface GitHubPort {
    * PR を作る直前に取り直してラベルを見る）。本文が null なら空文字
    */
   getIssue(req: { repo: string; issueNumber: number }): Promise<IssueInfo>;
-  /** commit の作成者に使う App のボット（008 research R7） */
-  getBotIdentity(): Promise<BotIdentity>;
+  /**
+   * commit の作成者に使う App のボット（008 research R7）。App の JWT で呼べるのは /app 系だけなので、
+   * ボットのアカウントの ID はリポジトリのインストールの認証で引く
+   */
+  getBotIdentity(req: { repo: string }): Promise<BotIdentity>;
   /** PR を作る。Draft を作れない（422 で Draft が使えない）ときは DraftUnavailableError */
   createPullRequest(req: CreatePullRequest): Promise<PullRequestRef>;
   /** auto-merge（squash）を有効にする。失敗は例外（message は GitHub の理由） */
   enableAutoMerge(req: { repo: string; nodeId: string }): Promise<void>;
   /** PR を Draft に変える。失敗は例外 */
   convertToDraft(req: { repo: string; nodeId: string }): Promise<void>;
+  /** PR の本文を書き直す（振り分けが変わったとき。009・010 の書き足しにも使う）。失敗は例外 */
+  updatePullRequestBody(req: { repo: string; number: number; body: string }): Promise<void>;
 }
 
 export interface IssueInfo {
