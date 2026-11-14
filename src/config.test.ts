@@ -484,6 +484,7 @@ install_command = ""
     ["worker", "poll_interval_seconds = 0", "/worker/poll_interval_seconds", "1 以上"],
     ["worker", "poll_interval_seconds = 301", "/worker/poll_interval_seconds", "300 以下"],
     ["storage", 'work_dir = ""', "/storage/work_dir", "1 文字以上"],
+    ["storage", 'eval_dir = ""', "/storage/eval_dir", "1 文字以上"],
   ])("[%s] %s はエラー", (section, line, path, message) => {
     const toml =
       section === "github"
@@ -558,6 +559,18 @@ describe("parseConfig の [llm]（002）", () => {
   });
 });
 
+describe("parseConfig: 回帰評価（012）", () => {
+  test("eval_dir を省略すると data/evals を設定ファイルの場所が基準の絶対パスにする", () => {
+    const config = parseConfig(MINIMAL, BASE_DIR);
+    expect(config.storage.eval_dir).toBe(resolve(BASE_DIR, "data/evals"));
+  });
+
+  test("eval_dir を指定できる（相対パスは設定ファイルの場所が基準）", () => {
+    const config = parseConfig(`${MINIMAL}\n[storage]\neval_dir = "out/evals"\n`, BASE_DIR);
+    expect(config.storage.eval_dir).toBe(resolve(BASE_DIR, "out/evals"));
+  });
+});
+
 describe("loadConfig", () => {
   test("存在しないファイルはパスを含むエラー", () => {
     expect(() => loadConfig("/nonexistent/factory.toml")).toThrow(/\/nonexistent\/factory\.toml/);
@@ -582,6 +595,7 @@ describe("loadConfig", () => {
     expect(dev.llm.provider).toBe("google-ai-studio");
     expect(dev.storage.database_path).not.toBe(prod.storage.database_path);
     expect(dev.storage.trace_dir).not.toBe(prod.storage.trace_dir);
+    expect(dev.storage.eval_dir).not.toBe(prod.storage.eval_dir);
     // 原則 III: 実装役と検査役は別系統
     expect(dev.models.verifier).not.toBe(dev.models.implementer);
   });

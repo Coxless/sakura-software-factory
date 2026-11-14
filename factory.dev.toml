@@ -63,6 +63,7 @@ poll_interval_seconds = 5   # キューを見る間隔（1〜300）。受付が�
 database_path = "data/factory.dev.db"   # 相対パスはこのファイルのディレクトリが基準
 trace_dir = "data/traces-dev"
 work_dir = "data/work-dev"   # ジョブごとの作業ディレクトリ（作業場から bind mount する）
+eval_dir = "data/evals-dev"  # 回帰評価の結果のファイル（さくらの結果と混ぜない）。項目の説明: specs/012-evals/contracts/factory-toml.md
 
 [log]
 level = "info"   # trace / debug / info / warn / error / fatal

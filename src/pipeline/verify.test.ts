@@ -99,6 +99,55 @@ describe("judge（US3）", () => {
   });
 });
 
+describe("judge の比較用の検査役（012）", () => {
+  function altEnv(responses: FakeResponse[], verifierAlt?: string) {
+    const created = createPipelineTestEnv(
+      responses,
+      verifierAlt === undefined ? {} : { models: { verifier_alt: verifierAlt } },
+    );
+    envs.push(created);
+    return created;
+  }
+
+  test("alt: true → モデルは verifier_alt、llm_calls は phase judge_alt・role verifier", async () => {
+    const e = altEnv([{ text: JSON.stringify(PASS) }], "alt-model");
+    const out = await judge({ gate: e.gate.deps }, input(e.jobId), { alt: true });
+    expect(out).toMatchObject({ kind: "ok", value: PASS, requests: 1 });
+    expect(e.gate.fake.requests[0]?.model).toBe("alt-model");
+    expect(e.gate.fake.requests[0]?.body).not.toHaveProperty("tools");
+    const calls = e.gate.db.select().from(llmCalls).all();
+    expect(calls.map((c) => [c.phase, c.role, c.model])).toEqual([
+      ["judge_alt", "verifier", "alt-model"],
+    ]);
+    const runs = e.gate.db.select().from(agentRuns).all();
+    expect(runs.map((r) => [r.phase, r.model, r.verdict])).toEqual([
+      ["judge_alt", "alt-model", "pass"],
+    ]);
+  });
+
+  test("主の判定と同じジョブで続けて呼んでも agent_runs がぶつからない", async () => {
+    const e = altEnv([{ text: JSON.stringify(FAIL) }, { text: JSON.stringify(PASS) }], "alt-model");
+    const main = await judge({ gate: e.gate.deps }, input(e.jobId));
+    const alt = await judge({ gate: e.gate.deps }, input(e.jobId), { alt: true });
+    expect(main).toMatchObject({ kind: "ok", value: FAIL });
+    expect(alt).toMatchObject({ kind: "ok", value: PASS });
+    const phases = e.gate.db
+      .select()
+      .from(llmCalls)
+      .all()
+      .map((c) => c.phase);
+    expect(phases).toEqual(["judge", "judge_alt"]);
+  });
+
+  test("verifier_alt が未設定なら LLM を呼ばずに failed", async () => {
+    const e = altEnv([{ text: JSON.stringify(PASS) }]);
+    const out = await judge({ gate: e.gate.deps }, input(e.jobId), { alt: true });
+    expect(out.kind).toBe("failed");
+    if (out.kind === "failed") expect(out.error).toContain("verifier_alt");
+    expect(e.gate.fake.requests).toHaveLength(0);
+  });
+});
+
 describe("verdictFeedback", () => {
   test("理由・満たしていない条件・直すべき点", () => {
     const text = verdictFeedback(FAIL);

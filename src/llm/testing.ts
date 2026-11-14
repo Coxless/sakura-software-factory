@@ -321,7 +321,7 @@ export interface TestConfigOverrides {
     judge_retries: number;
   }>;
   /** [models] の一部（005: 検査役と実装役を同じにするテスト） */
-  models?: Partial<{ planner: string; implementer: string; verifier: string }>;
+  models?: Partial<{ planner: string; implementer: string; verifier: string; verifier_alt: string }>;
   /** [pipeline] の一部（005） */
   pipeline?: Partial<{
     check_commands: string[];
@@ -342,7 +342,7 @@ export interface TestConfigOverrides {
     max_feedback_chars: number;
   }>;
   /** [storage] の一部（004 の軌跡のテスト） */
-  storage?: Partial<{ trace_dir: string }>;
+  storage?: Partial<{ trace_dir: string; eval_dir: string }>;
 }
 
 export const TEST_API_KEY = "test-key-ABCDEF123";

@@ -14,7 +14,7 @@ request_timeout_seconds = 300   # 1回の試行の時間の上限（10〜1800）
 planner = "Kimi-K2.7-Code"     # 計画役（ツールなし・1回呼び出し）
 implementer = "Kimi-K2.7-Code" # 実装役
 verifier = "Qwen3.6"           # 検査役（実装役とは別系統）
-# verifier_alt = "gemma-4"     # 検査役の比較用（012）
+# verifier_alt = "gemma-4"     # 検査役の比較用（012 の pnpm run eval:dev だけで使う。implementer と同じ値は不可）
 fallback = "gpt-oss-120b"      # プレビューモデル停止時の退避先
 
 [budget]
@@ -59,6 +59,7 @@ poll_interval_seconds = 5   # キューを見る間隔（1〜300）。受付が�
 database_path = "data/factory.db"   # 相対パスはこのファイルのディレクトリが基準
 trace_dir = "data/traces"
 work_dir = "data/work"   # ジョブごとの作業ディレクトリ（作業場から bind mount する）
+eval_dir = "data/evals"  # 回帰評価（pnpm run eval:dev）の結果のファイル。項目の説明: specs/012-evals/contracts/factory-toml.md
 
 [log]
 level = "info"   # trace / debug / info / warn / error / fatal
