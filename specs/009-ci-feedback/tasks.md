@@ -127,10 +127,10 @@ description: "Task list for 009 ci-feedback"
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T038 設計ドキュメントを直す（plan.md「設計ドキュメントとの差分」）: `docs/design/03_アーキテクチャと技術スタック.md` の3章・4章 #8・#9・5章・8章、`docs/design/04_ガードレールとハーネス設計.md` の3章
-- [ ] T039 [P] `deploy/README.md` の GitHub App の設定に、権限 Checks: read・Actions: read とイベント `check_suite`・`pull_request` を足す（`specs/007-github-intake/contracts/github-app.md` も）
-- [ ] T040 [P] `docs/journal/2026-11-14-009-ci-feedback-specとplan.md` に、推奨で決めたことと理由、まだ確かめていないことを書く
-- [ ] T041 `workshop exec dev -- bash -lc 'cd /project && pnpm run check'` と `pnpm run secrets:scan` を通す（`src/ship-dev.test.ts` を含む）。quickstart.md の自動テストの表のテストがあることを確かめる
+- [X] T038 設計ドキュメントを直す（plan.md「設計ドキュメントとの差分」）: `docs/design/03_アーキテクチャと技術スタック.md` の3章・4章 #8・#9・5章・8章、`docs/design/04_ガードレールとハーネス設計.md` の3章
+- [X] T039 [P] `deploy/README.md` の GitHub App の設定に、権限 Checks: read・Actions: read とイベント `check_suite`・`pull_request` を足す（`specs/007-github-intake/contracts/github-app.md` も）
+- [X] T040 [P] `docs/journal/2026-11-14-009-ci-feedback-specとplan.md` に、推奨で決めたことと理由、まだ確かめていないことを書く
+- [X] T041 `workshop exec dev -- bash -lc 'cd /project && pnpm run check'` と `pnpm run secrets:scan` を通す（`src/ship-dev.test.ts` を含む）。quickstart.md の自動テストの表のテストがあることを確かめる
 
 ---
 

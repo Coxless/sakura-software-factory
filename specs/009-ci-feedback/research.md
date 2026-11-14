@@ -129,6 +129,6 @@
 
 ## まだ確かめていないこと（AI解禁のあとに本物で確かめる）
 
-- テスト用のリポジトリ（public）で、App が GitHub Actions のスイートの `check_suite.completed` を受け取れるか（権限 Checks: read の追加と、イベントの購読の追加が要る）
+- テスト用のリポジトリ（public）で、App が GitHub Actions のスイートの `check_suite.completed` を受け取れるか（App は 007 の確認の時点で `checks:read`・`actions:read` の権限と `check_suite`・`pull_request` のイベントを持っている）
 - Actions のジョブのログ（`/actions/jobs/{id}/logs`）が、インストールトークンで 302 のリダイレクトとして返り、octokit がプレーンテキストを受け取れるか
 - `convertPullRequestToDraft` が有効な auto-merge を外すか（外れなくても Draft はマージされない）

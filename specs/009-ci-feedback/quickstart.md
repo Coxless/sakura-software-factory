@@ -19,7 +19,7 @@ workshop exec dev -- bash -lc 'cd /project && pnpm run check'
 
 ## 本物の GitHub での確認（AI解禁のあと、テスト用のリポジトリ）
 
-前提: テスト用のリポジトリに CI（GitHub Actions）・main のブランチ保護（CI を必須チェック）・auto-merge の許可。App の設定に権限 Checks: read・Actions: read と、イベント `check_suite`・`pull_request` を足す。
+前提: テスト用のリポジトリに CI（GitHub Actions）・main のブランチ保護（CI を必須チェック）・auto-merge の許可。App の権限 Checks: read・Actions: read とイベント `check_suite`・`pull_request` は 007 で設定済み（`GET /app` の `permissions`・`events` で確かめる）。
 
 1. CI が落ちる変更を頼む（例: 工程内テストのコマンドを CI より少なくしたリポジトリで、CI だけが検出する lint を踏む変更）
 2. PR ができて `ci_waiting` になる → CI が落ちる → PR の本文の CI の欄に「❌ 失敗」、ジョブが `implementing` に戻る
