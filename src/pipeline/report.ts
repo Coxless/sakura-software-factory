@@ -127,10 +127,9 @@ function renderShipBlock(conditions: readonly Condition[]): string[] {
 }
 
 function renderFailedChecks(checks: readonly FailedCheck[]): string[] {
-  const lines = checks
-    .slice(0, MAX_FAILED_CHECKS)
-    .map((c) => `- \`${c.name}\`（${c.conclusion}）`);
-  if (checks.length > MAX_FAILED_CHECKS) lines.push(`- ほか ${checks.length - MAX_FAILED_CHECKS} 件`);
+  const lines = checks.slice(0, MAX_FAILED_CHECKS).map((c) => `- \`${c.name}\`（${c.conclusion}）`);
+  if (checks.length > MAX_FAILED_CHECKS)
+    lines.push(`- ほか ${checks.length - MAX_FAILED_CHECKS} 件`);
   return lines;
 }
 
@@ -247,7 +246,7 @@ export async function failJob(
   message: string,
   extra: FailJobExtra = {},
 ): Promise<void> {
-  const { db, config, logger, github } = deps;
+  const { db, logger } = deps;
   const now = deps.now ?? Date.now;
   const secrets = extra.secrets ?? [];
   const current = db.select().from(jobs).where(eq(jobs.id, job.id)).get();
@@ -585,7 +584,8 @@ export function renderCiSection(config: FactoryConfig, events: readonly JobEvent
           .slice(0, MAX_FAILED_CHECKS)
           .map((c) => `\`${c.name}\`（${c.conclusion}）`)
           .join("、");
-        const more = failed.length > MAX_FAILED_CHECKS ? ` ほか ${failed.length - MAX_FAILED_CHECKS} 件` : "";
+        const more =
+          failed.length > MAX_FAILED_CHECKS ? ` ほか ${failed.length - MAX_FAILED_CHECKS} 件` : "";
         rows.push(
           detail.conclusion === "success"
             ? `| ${String(detail.attempt ?? "")} | ${shortSha(detail.head_sha)} | ✅ 通過 | |`
@@ -642,17 +642,10 @@ export function listCiEvents(db: Db, jobId: number): JobEvent[] {
     .where(and(eq(jobEvents.job_id, jobId), eq(jobEvents.type, "note")))
     .orderBy(jobEvents.id)
     .all()
-    .filter((event) =>
-      CI_EVENT_KINDS.some((kind) => event.detail?.includes(`"kind":"${kind}"`)),
-    );
+    .filter((event) => CI_EVENT_KINDS.some((kind) => event.detail?.includes(`"kind":"${kind}"`)));
 }
 
-function noteEvent(
-  deps: ReportDeps,
-  jobId: number,
-  type: "note" | "error",
-  detail: object,
-): void {
+function noteEvent(deps: ReportDeps, jobId: number, type: "note" | "error", detail: object): void {
   const now = deps.now ?? Date.now;
   deps.db
     .insert(jobEvents)
@@ -708,6 +701,10 @@ async function handOverPullRequest(
     noteEvent(deps, job.id, "error", { kind: "handover_failed", message });
     deps.logger.error({ jobId: job.id, error: message }, "PR を Draft に変えられませんでした");
   }
-  noteEvent(deps, job.id, "note", { kind: "ci_gave_up", reason: kind, converted_to_draft: converted });
+  noteEvent(deps, job.id, "note", {
+    kind: "ci_gave_up",
+    reason: kind,
+    converted_to_draft: converted,
+  });
   await refreshCiSection(deps, job, secrets);
 }

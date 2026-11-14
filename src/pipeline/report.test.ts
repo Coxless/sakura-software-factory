@@ -14,9 +14,9 @@ import {
   pullRequestTitle,
   renderCiSection,
   renderFailureReport,
-  replaceCiSection,
   renderShipNotice,
   renderShipReport,
+  replaceCiSection,
   type ShipReportInput,
 } from "./report.ts";
 import type { PipelineResult } from "./run.ts";
@@ -564,8 +564,16 @@ describe("renderCiSection・replaceCiSection（009）", () => {
         1,
       ),
       noteRow("ci_event", { event: "check_suite" }, 2),
-      noteRow("ci_retry_pushed", { head_sha: "1234567abc", ci_retry: 1, decision: "auto_merge" }, 3),
-      noteRow("ci_result", { head_sha: "1234567abc", conclusion: "success", attempt: 2, failed: [] }, 4),
+      noteRow(
+        "ci_retry_pushed",
+        { head_sha: "1234567abc", ci_retry: 1, decision: "auto_merge" },
+        3,
+      ),
+      noteRow(
+        "ci_result",
+        { head_sha: "1234567abc", conclusion: "success", attempt: 2, failed: [] },
+        4,
+      ),
       noteRow("merged", { pr_number: 3 }, 5),
       noteRow("ci_gave_up", { reason: "ci_timeout", converted_to_draft: true }, 6),
     ]);
@@ -589,7 +597,10 @@ describe("renderCiSection・replaceCiSection（009）", () => {
       `A\n${section}\nB`,
     );
     expect(
-      replaceCiSection("A\n<!-- 009・010 で CI・マージ・デプロイの結果をここに書き足す -->", section),
+      replaceCiSection(
+        "A\n<!-- 009・010 で CI・マージ・デプロイの結果をここに書き足す -->",
+        section,
+      ),
     ).toBe(`A\n${section}`);
     expect(replaceCiSection("A\n\n", section)).toBe(`A\n\n${section}`);
   });

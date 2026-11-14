@@ -512,7 +512,10 @@ describe("shipJob: CI 失敗後のやり直し（009 update）", () => {
 
   test("追加の commit を早送りで push し、PR は作らない。ci_waiting に戻り CI の列が新しくなる", async () => {
     const s = await shipped();
-    writeFileSync(join(s.workdir, "README.md"), "# demo\n\n`pnpm run check` で検査する（直した）\n");
+    writeFileSync(
+      join(s.workdir, "README.md"),
+      "# demo\n\n`pnpm run check` で検査する（直した）\n",
+    );
     const out = await shipJob(s.deps, s.retryInput());
     expect(out).toMatchObject({ kind: "shipped", prNumber: 1, decision: "auto_merge" });
     const head = await s.remoteBranch();
@@ -549,7 +552,10 @@ describe("shipJob: CI 失敗後のやり直し（009 update）", () => {
     const out = await shipJob(s.deps, s.retryInput());
     expect(out).toMatchObject({ kind: "shipped", decision: "draft" });
     expect(s.github.pullRequests[0]?.draft).toBe(true);
-    expect(s.notes("ci_retry_pushed")[0]).toMatchObject({ decision: "draft", unmet: ["diff_size"] });
+    expect(s.notes("ci_retry_pushed")[0]).toMatchObject({
+      decision: "draft",
+      unmet: ["diff_size"],
+    });
   });
 
   test("Draft の PR は条件を満たしても Draft のまま", async () => {

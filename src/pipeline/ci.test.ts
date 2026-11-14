@@ -126,9 +126,9 @@ function setup(
 describe("concludeCi", () => {
   test("0件・途中があれば pending", () => {
     expect(concludeCi([])).toEqual({ kind: "pending" });
-    expect(
-      concludeCi([run("a", "completed", "success"), run("b", "in_progress", null)]),
-    ).toEqual({ kind: "pending" });
+    expect(concludeCi([run("a", "completed", "success"), run("b", "in_progress", null)])).toEqual({
+      kind: "pending",
+    });
     expect(concludeCi([run("a", "queued", null)])).toEqual({ kind: "pending" });
   });
 
@@ -277,7 +277,9 @@ describe("checkCiJob: 失敗（US2）", () => {
       attempt: 2,
       failed: [{ name: "test", conclusion: "failure" }],
     });
-    expect(ctx.github.pullRequests[0]?.body).toContain("| 2 | `0123456` | ❌ 失敗 | `test`（failure） |");
+    expect(ctx.github.pullRequests[0]?.body).toContain(
+      "| 2 | `0123456` | ❌ 失敗 | `test`（failure） |",
+    );
     expect(ctx.github.comments).toHaveLength(0);
   });
 

@@ -101,9 +101,17 @@ export async function checkCiJob(deps: CiMonitorDeps, job: Job): Promise<CiCheck
     const pr = await github.getPullRequest({ repo: job.repo, number: job.pr_number });
     if (pr.merged) {
       try {
-        transition(db, job.id, "ci_waiting", "merged", now(), { pr_number: job.pr_number }, {
-          ci_event_at: null,
-        });
+        transition(
+          db,
+          job.id,
+          "ci_waiting",
+          "merged",
+          now(),
+          { pr_number: job.pr_number },
+          {
+            ci_event_at: null,
+          },
+        );
       } catch (error) {
         if (error instanceof StateTransitionError) return "skipped";
         throw error;

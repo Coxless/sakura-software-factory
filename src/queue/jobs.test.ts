@@ -266,7 +266,9 @@ describe("noteCiEvent（009）", () => {
 
   test("pull_request_closed は pr_number が一致する ci_waiting に印を付ける", () => {
     const { db, close } = migratedMemoryDb();
-    db.insert(jobs).values([waiting(3)]).run();
+    db.insert(jobs)
+      .values([waiting(3)])
+      .run();
     const ev = { kind: "pull_request_closed", repo: "Coxless/demo", merged: true } as const;
     expect(noteCiEvent(db, { ...ev, prNumber: 4 }, 5, "d")).toBeUndefined();
     expect(noteCiEvent(db, { ...ev, repo: "x/y", prNumber: 3 }, 5, "d")).toBeUndefined();

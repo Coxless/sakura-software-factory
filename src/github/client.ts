@@ -212,10 +212,13 @@ export function createGitHubClient(options: { appId: string; privateKey: string 
         }
       }
       try {
-        const { data } = await octokit.request("GET /repos/{owner}/{repo}/check-runs/{check_run_id}", {
-          ...split(repo),
-          check_run_id: check.id,
-        });
+        const { data } = await octokit.request(
+          "GET /repos/{owner}/{repo}/check-runs/{check_run_id}",
+          {
+            ...split(repo),
+            check_run_id: check.id,
+          },
+        );
         const text = [data.output?.title, data.output?.summary, data.output?.text]
           .filter((part): part is string => typeof part === "string" && part.trim() !== "")
           .join("\n\n");

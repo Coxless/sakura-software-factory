@@ -111,6 +111,53 @@ export async function cloneForJob(req: {
   }
 }
 
+/**
+ * CI 失敗後のやり直しのために作業ブランチを取る（009 research R6）。深さを制限せずにブランチの履歴を取り、
+ * 最初の基準の commit（baseSha）が履歴にあることを確かめる。HEAD は作業ブランチの先頭（前回の push）のまま。
+ * トークンは cloneForJob と同じく clone の子プロセスの環境変数でだけ渡す。失敗は CloneError
+ */
+export async function cloneBranchForRetry(req: {
+  repo: string;
+  token: string;
+  branch: string;
+  baseSha: string;
+  dir: string;
+  signal?: AbortSignal;
+  /** 既定は https://github.com。テストでは file:// */
+  baseUrl?: string;
+  run?: GitRunner;
+}): Promise<{ head: string }> {
+  const run = req.run ?? defaultRunner;
+  const access = tokenAccess(req.token);
+  const url = `${req.baseUrl ?? "https://github.com"}/${req.repo}.git`;
+  const signal = req.signal ? { signal: req.signal } : {};
+  try {
+    if (req.signal?.aborted) throw req.signal.reason ?? new Error("中断しました");
+    mkdirSync(dirname(req.dir), { recursive: true });
+    await run(["clone", "--quiet", "--single-branch", "--branch", req.branch, url, req.dir], {
+      env: { ...baseEnv(), ...access.env },
+      ...signal,
+    });
+    try {
+      await run(["-C", req.dir, "cat-file", "-e", `${req.baseSha}^{commit}`], {
+        env: baseEnv(),
+        ...signal,
+      });
+    } catch {
+      throw new Error(
+        `作業ブランチ ${req.branch} の履歴に基準の commit ${req.baseSha} がありません`,
+      );
+    }
+    const head = (await run(["-C", req.dir, "rev-parse", "HEAD"], { env: baseEnv(), ...signal }))
+      .stdout;
+    return { head: head.trim() };
+  } catch (error) {
+    throw new CloneError(
+      access.mask(`${req.repo} の ${req.branch} を取得できません: ${errorText(error)}`),
+    );
+  }
+}
+
 // ---- 008: commit と push（research R2・R5） ----
 
 /** commit・push で失敗した。message はトークンを伏せ済み */

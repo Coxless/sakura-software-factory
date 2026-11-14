@@ -461,7 +461,12 @@ describe("parseConfig: CI連携（009）", () => {
 
   test.each([
     ["worker", "ci_check_interval_seconds = 9", "/worker/ci_check_interval_seconds", "10 以上"],
-    ["worker", "ci_check_interval_seconds = 3601", "/worker/ci_check_interval_seconds", "3600 以下"],
+    [
+      "worker",
+      "ci_check_interval_seconds = 3601",
+      "/worker/ci_check_interval_seconds",
+      "3600 以下",
+    ],
     ["pipeline", "max_ci_log_chars = 999", "/pipeline/max_ci_log_chars", "1000 以上"],
     ["pipeline", "max_ci_log_chars = 100001", "/pipeline/max_ci_log_chars", "100000 以下"],
   ])("[%s] %s はエラー", (section, line, path, message) => {

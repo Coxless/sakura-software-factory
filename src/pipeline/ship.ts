@@ -17,7 +17,6 @@ import {
 } from "../github/port.ts";
 import { countLlmCallsForJob } from "../queue/llm-calls.ts";
 import { type Job, jobEvents, jobs } from "../queue/schema.ts";
-import type { TransitionFields } from "./state.ts";
 import {
   type FailureKind,
   failJob,
@@ -38,6 +37,7 @@ import {
   type ShipCheckResult,
   scanSecrets,
 } from "./ship-checks.ts";
+import type { TransitionFields } from "./state.ts";
 import { transitionPath } from "./state.ts";
 
 export interface ShipDeps extends ReportDeps {
@@ -185,11 +185,11 @@ export async function shipJob(deps: ShipDeps, input: ShipInput): Promise<ShipOut
     }
     if (!commit) {
       return update
-        ? await fail("ci_unfixed", "CI の失敗を受けたやり直しで、前回の push からの変更がありません")
-        : await fail(
-            "internal_error",
-            "判定に合格しましたが、作業ディレクトリに変更がありません",
-          );
+        ? await fail(
+            "ci_unfixed",
+            "CI の失敗を受けたやり直しで、前回の push からの変更がありません",
+          )
+        : await fail("internal_error", "判定に合格しましたが、作業ディレクトリに変更がありません");
     }
 
     // 出荷前チェック（research R3・R4）。やり直しでは diff の大きさ・禁止パスを PR の変更全体で見る（009 R11）。
@@ -463,11 +463,7 @@ interface ReshipContext {
  * Draft はそのまま。状態を ci_waiting に戻し、PR の本文を今回の結果で書き直す（CI の欄はそれまでの記録から）。
  * Issue にはコメントしない
  */
-async function reship(
-  deps: ShipDeps,
-  input: ShipInput,
-  ctx: ReshipContext,
-): Promise<ShipOutcome> {
+async function reship(deps: ShipDeps, input: ShipInput, ctx: ReshipContext): Promise<ShipOutcome> {
   const { github, config, logger } = deps;
   const { job, secrets } = input;
   const { existing, notes } = ctx;
@@ -502,7 +498,10 @@ async function reship(
       ctx.ciFields,
     );
   } catch (error) {
-    log.error({ err: error, pr: existing.number }, "やり直しの push のあとの状態の遷移に失敗しました");
+    log.error(
+      { err: error, pr: existing.number },
+      "やり直しの push のあとの状態の遷移に失敗しました",
+    );
   }
   note(deps, job.id, "note", ctx.shippedNote(existing.number, existing.url, decision));
   note(deps, job.id, "note", {
