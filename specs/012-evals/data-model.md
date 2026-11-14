@@ -31,7 +31,7 @@ DB のスキーマは変えない。評価のジョブは既存の `jobs` に1�
 | workType | enum | |
 | attempt | int | 1 始まり（`--repeat`） |
 | status | `succeeded` / `failed` / `error` / `not_run` | `error` = 実行できない（作業場の異常など） |
-| failure | `pipeline` / `grader` / undefined | 失敗の種類（工程の終わり方が passed 以外 / 隠しチェックの失敗） |
+| failure | `pipeline` / `grader`（省略可） | 失敗の種類（工程の終わり方が passed 以外 / 隠しチェックの失敗） |
 | reason | string | マスク済み。失敗・実行できない理由 |
 | jobId | int? | 評価用のジョブ |
 | pipeline | object? | `outcome`・`retries`・`rounds`（数）・`requests`・`diffStat`・`tracePath`・`planWorkType` |
@@ -71,7 +71,7 @@ passed かつ 隠しチェック failed → failed (failure=grader)
 | provider | string | `[llm].provider` |
 | models | object | `planner`・`implementer`・`verifier`・`verifier_alt?` |
 | options | object | `cases`（絞り込み）・`repeat`・`maxRequests` |
-| stopped | `max_requests` / `budget_exceeded` / `aborted` / undefined | |
+| stopped | `max_requests` / `budget_exceeded` / `aborted`（止まったときだけ） | |
 | cases | CaseResult[] | |
 | summary | Summary | 下記 |
 

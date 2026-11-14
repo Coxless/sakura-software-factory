@@ -27,7 +27,7 @@ export interface OneShotRequest<S> {
   phase: "plan" | "judge" | "judge_alt";
   role: "planner" | "verifier";          // llm_calls.role
   /** モデルを引く役割（既定は role）。比較用の検査役は "verifier_alt" */
-  modelRole?: ModelRole;
+  modelRole?: "planner" | "verifier" | "verifier_alt";
   // …既存…
 }
 ```
@@ -74,8 +74,9 @@ export function runGrader(prepared: PreparedCase, c: EvalCase, config: FactoryCo
 export interface EvalRunnerDeps { gate: GateDeps; prepare: PrepareCase; now?: () => number;
   harness: () => Promise<{ commit: string; dirty: boolean }> }
 export interface EvalRunInput { set: EvalSet; repeat: number; maxRequests: number; timeoutMinutes: number;
-  options: { cases: string[] | null }; signal?: AbortSignal;
-  onProgress?: (event: EvalProgress) => void }
+  cases: string[] | null;   // 結果に残す絞り込み（--cases）
+  signal?: AbortSignal; onProgress?: (event: EvalProgress) => void }
+export function defaultMaxRequests(caseCount: number, repeat: number, config: FactoryConfig): number;
 export function runEvals(deps: EvalRunnerDeps, input: EvalRunInput): Promise<EvalRun>;   // 例外を投げない
 ```
 
@@ -86,9 +87,13 @@ export const EvalRunSchema: TSchema;                       // 結果のファイ
 export function summarize(cases: CaseResult[], models): Summary;
 export function writeEvalRun(dir: string, run: EvalRun): string;      // 書いたパス
 export function readEvalRun(path: string): EvalRun;                   // 形が合わなければ例外
-export function findBaseline(dir: string, setName: string, before: string): { path: string; run: EvalRun } | undefined;
+export function findBaseline(dir: string, setName: string, before: string):
+  { found?: { path: string; run: EvalRun }; warnings: string[] };   // 壊れたファイルは warnings に入れて飛ばす
 export function compareRuns(baseline: EvalRun, current: EvalRun): Comparison;
-export function formatRun(run: EvalRun, comparison?: Comparison): string;
+export function formatRun(run: EvalRun, options?: { resultPath?: string; comparison?: Comparison }): string;
 export function formatComparison(c: Comparison): string;
-export function selfCheck(set: EvalSet, config: FactoryConfig, prepare: PrepareCase): Promise<SelfCheckResult[]>;
+export function formatEstimate(input: { cases; repeat; maxRequests; perJob; altVerifier }): string;
+export function formatSelfCheck(results: SelfCheckResult[]): string;
+export function selfCheck(set: EvalSet, config: FactoryConfig, prepare: PrepareCase,
+  options?: { now?; signal?; onCase? }): Promise<SelfCheckResult[]>;
 ```

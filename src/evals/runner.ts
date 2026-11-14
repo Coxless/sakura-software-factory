@@ -240,8 +240,7 @@ export async function runEvals(deps: EvalRunnerDeps, input: EvalRunInput): Promi
           ...(evalCase.instruction ? { instruction: evalCase.instruction } : {}),
           deadline: started + input.timeoutMinutes * 60_000,
           ...(input.signal ? { signal: input.signal } : {}),
-          onPhase: (phase, round) =>
-            progress({ type: "phase", caseId: evalCase.id, phase, round }),
+          onPhase: (phase, round) => progress({ type: "phase", caseId: evalCase.id, phase, round }),
         },
       );
       const aborted = pipeline.outcome === "aborted";
@@ -351,7 +350,12 @@ export async function runEvals(deps: EvalRunnerDeps, input: EvalRunInput): Promi
           reason: `隠しチェックを実行できません: ${grader?.error ?? ""}`,
         };
       } else if (grader.status === "failed") {
-        result = { ...common, status: "failed", failure: "grader", reason: graderFailureText(grader) };
+        result = {
+          ...common,
+          status: "failed",
+          failure: "grader",
+          reason: graderFailureText(grader),
+        };
       } else {
         result = { ...common, status: "succeeded", reason: pipeline.reason };
       }

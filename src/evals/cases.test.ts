@@ -27,7 +27,11 @@ function issuesOf(fn: () => unknown) {
 describe("loadEvalSet", () => {
   test("正しいケースが読め、既定値とハッシュが付く", () => {
     const s = set([
-      { id: "b-case", issue: "B を直す\n\n本文の1行目\n本文の2行目", hidden: { ".eval/x.test.ts": "x" } },
+      {
+        id: "b-case",
+        issue: "B を直す\n\n本文の1行目\n本文の2行目",
+        hidden: { ".eval/x.test.ts": "x" },
+      },
       { id: "a-case", setup: { "src/a.ts": "bug" } },
     ]);
     const loaded = loadEvalSet(s.dir);
@@ -60,7 +64,10 @@ describe("loadEvalSet", () => {
 
   test("誤りはケースの ID と理由つきで全部集める", () => {
     const s = set([
-      { id: "no-grader", toml: DEFAULT_CASE_TOML.replace('commands = ["grade-cmd"]', "commands = []") },
+      {
+        id: "no-grader",
+        toml: DEFAULT_CASE_TOML.replace('commands = ["grade-cmd"]', "commands = []"),
+      },
       { id: "no-solution", solution: null },
       { id: "no-issue", issue: null },
       { id: "bad-project", toml: DEFAULT_CASE_TOML.replace("projects/demo", "projects/none") },

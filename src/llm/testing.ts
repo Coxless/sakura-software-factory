@@ -321,7 +321,12 @@ export interface TestConfigOverrides {
     judge_retries: number;
   }>;
   /** [models] の一部（005: 検査役と実装役を同じにするテスト） */
-  models?: Partial<{ planner: string; implementer: string; verifier: string; verifier_alt: string }>;
+  models?: Partial<{
+    planner: string;
+    implementer: string;
+    verifier: string;
+    verifier_alt: string;
+  }>;
   /** [pipeline] の一部（005） */
   pipeline?: Partial<{
     check_commands: string[];

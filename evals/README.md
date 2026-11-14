@@ -16,13 +16,13 @@ cases/<id>/
 
 形の詳細は `specs/012-evals/contracts/case-format.md`。
 
-| ID | 作業の種類 | 内容 |
-|---|---|---|
-| `test-format-price` | test | `formatPrice` のテストを書く。壊した版を4種類とも見つけられるかで採点 |
-| `bugfix-parse-quantity` | bugfix | `parseQuantity` の空白・小数の不具合を直す |
-| `lint-no-console` | chore | lint の指摘（`console.log`・`any`）を挙動を変えずに直す。lint のスクリプトは採点前に元に戻す |
-| `docs-api-section` | docs | README に公開関数の API の節を書く |
-| `refactor-round-helper` | refactor | 重複した丸めを `roundTo` にまとめる |
+| ID                      | 作業の種類 | 内容                                                                                         |
+| ----------------------- | ---------- | -------------------------------------------------------------------------------------------- |
+| `test-format-price`     | test       | `formatPrice` のテストを書く。壊した版を4種類とも見つけられるかで採点                        |
+| `bugfix-parse-quantity` | bugfix     | `parseQuantity` の空白・小数の不具合を直す                                                   |
+| `lint-no-console`       | chore      | lint の指摘（`console.log`・`any`）を挙動を変えずに直す。lint のスクリプトは採点前に元に戻す |
+| `docs-api-section`      | docs       | README に公開関数の API の節を書く                                                           |
+| `refactor-round-helper` | refactor   | 重複した丸めを `roundTo` にまとめる                                                          |
 
 ## 実行
 

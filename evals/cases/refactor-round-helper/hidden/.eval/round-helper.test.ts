@@ -8,7 +8,7 @@ import { averageQuantity, totalValue } from "../src/stock.ts";
 const root = join(import.meta.dirname, "..");
 
 test("roundTo は小数第 digits 位までに四捨五入する", () => {
-  assert.equal(roundTo(3.14159, 2), 3.14);
+  assert.equal(roundTo(1.23456, 2), 1.23);
   assert.equal(roundTo(2.5, 0), 3);
   assert.equal(roundTo(1234.5678, 1), 1234.6);
   assert.equal(roundTo(7, 2), 7);

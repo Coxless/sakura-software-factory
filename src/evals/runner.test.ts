@@ -164,9 +164,7 @@ describe("runEvals（US2）", () => {
     expect(t.fake.log.closed).toEqual(["a", "b"]);
     const jobIds = t.fake.log.prepared.map((p) => p.jobId);
     expect(new Set(jobIds).size).toBe(2);
-    expect(t.fake.log.prepared[1]?.workspace.files.get("src/a.ts")).toBe(
-      "export const a = 2;\n",
-    );
+    expect(t.fake.log.prepared[1]?.workspace.files.get("src/a.ts")).toBe("export const a = 2;\n");
   });
 
   test("隠しのファイルは LLM の入力に現れず、隠しチェックの時点では置かれている", async () => {
@@ -296,7 +294,9 @@ describe("runEvals: 検査役の比較（US4）", () => {
     const requests = t.gate.fake.requests;
     expect(requests.map((r) => r.model).slice(-2)).toEqual(["verify-model", "alt-model"]);
     // 主の最後の判定と比較用の判定の入力（user メッセージ）は同じ
-    expect(JSON.stringify(requests.at(-1)?.messages)).toBe(JSON.stringify(requests.at(-2)?.messages));
+    expect(JSON.stringify(requests.at(-1)?.messages)).toBe(
+      JSON.stringify(requests.at(-2)?.messages),
+    );
     const phases = t.gate.db
       .select()
       .from(llmCalls)
@@ -339,7 +339,13 @@ describe("runEvals: 検査役の比較（US4）", () => {
     const t = setup([{ id: "c1" }], passing());
     const run = await t.run();
     expect(run.summary.verifiers).toHaveLength(1);
-    expect(t.gate.db.select().from(llmCalls).all().map((r) => r.phase)).not.toContain("judge_alt");
+    expect(
+      t.gate.db
+        .select()
+        .from(llmCalls)
+        .all()
+        .map((r) => r.phase),
+    ).not.toContain("judge_alt");
   });
 });
 

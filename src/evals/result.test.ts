@@ -23,7 +23,10 @@ const tempDir = () => {
   return dir;
 };
 
-const judgement = (verdict: Judgement["verdict"], overrides: Partial<Judgement> = {}): Judgement => ({
+const judgement = (
+  verdict: Judgement["verdict"],
+  overrides: Partial<Judgement> = {},
+): Judgement => ({
   model: "m",
   verdict,
   comparable: true,
@@ -41,7 +44,13 @@ describe("summarize", () => {
     const s = summarize(
       [
         caseResult({ caseId: "a", status: "succeeded", requests: 10, durationMs: 100 }),
-        caseResult({ caseId: "b", status: "failed", workType: "test", requests: 30, durationMs: 300 }),
+        caseResult({
+          caseId: "b",
+          status: "failed",
+          workType: "test",
+          requests: 30,
+          durationMs: 300,
+        }),
         caseResult({ caseId: "c", status: "error", requests: 5 }),
         caseResult({ caseId: "d", status: "not_run", requests: 0 }),
       ],
@@ -144,7 +153,10 @@ describe("結果のファイル", () => {
     const dir = tempDir();
     writeEvalRun(dir, evalRun({ runId: "a", startedAt: "2026-11-10T00:00:00.000Z" }));
     writeEvalRun(dir, evalRun({ runId: "b", startedAt: "2026-11-12T00:00:00.000Z" }));
-    writeEvalRun(dir, evalRun({ runId: "c", startedAt: "2026-11-13T00:00:00.000Z", setName: "other" }));
+    writeEvalRun(
+      dir,
+      evalRun({ runId: "c", startedAt: "2026-11-13T00:00:00.000Z", setName: "other" }),
+    );
     writeEvalRun(dir, evalRun({ runId: "d", startedAt: "2026-11-20T00:00:00.000Z" }));
     writeFileSync(join(dir, "broken.json"), "{");
     const { found, warnings } = findBaseline(dir, "evals", "2026-11-14T00:00:00.000Z");

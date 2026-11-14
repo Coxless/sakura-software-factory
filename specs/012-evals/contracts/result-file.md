@@ -13,12 +13,12 @@
   "provider": "sakura",
   "models": { "planner": "…", "implementer": "…", "verifier": "Qwen3.6", "verifier_alt": "gemma-4" },
   "options": { "cases": null, "repeat": 1, "maxRequests": 500 },
-  "stopped": null,                       // "max_requests" | "budget_exceeded" | "aborted"
+  // "stopped": "max_requests" | "budget_exceeded" | "aborted"   止まったときだけ
   "cases": [
     {
       "caseId": "bugfix-parse-quantity", "caseHash": "sha256:…", "workType": "bugfix", "attempt": 1,
       "status": "succeeded",             // succeeded | failed | error | not_run
-      "failure": null,                   // "pipeline" | "grader"
+      // "failure": "pipeline" | "grader"   failed のときだけ
       "reason": "…",
       "jobId": 41,
       "pipeline": { "outcome": "passed", "retries": 0, "rounds": 1, "requests": 18,
@@ -42,6 +42,7 @@
 }
 ```
 
+- 値のない任意の項目（`stopped`・`failure`・`grader`・`verifier`・`verifierAlt` など）は省略する。率と平均は、分母が0なら `null`
 - 文字列（reason・ログ・エラー）はマスクしてから書く。diff の本文は書かない（軌跡を参照する）
 - 読み込みは TypeBox で検証し、合わないファイルは比較の相手の検索で警告して飛ばす
 

@@ -65,7 +65,10 @@ export function writeTestSet(
     if (spec.setup) writeFiles(join(caseDir, "setup"), spec.setup);
     if (spec.hidden) writeFiles(join(caseDir, "hidden"), spec.hidden);
     if (spec.solution !== null) {
-      writeFiles(join(caseDir, "solution"), spec.solution ?? { "src/a.ts": "export const a = 2;\n" });
+      writeFiles(
+        join(caseDir, "solution"),
+        spec.solution ?? { "src/a.ts": "export const a = 2;\n" },
+      );
     }
   }
   return { dir, cleanup: () => rmSync(root, { recursive: true, force: true }) };
@@ -96,7 +99,10 @@ export interface FakePrepareOptions {
    * Workspace.exec の応答。ケースと作業場のファイルを見て決める（工程内テストと合格条件の両方に使われる）。
    * 既定は終了コード 0
    */
-  exec?: (command: string, ctx: { evalCase: EvalCase; files: Map<string, string> }) => FakeBashBehavior;
+  exec?: (
+    command: string,
+    ctx: { evalCase: EvalCase; files: Map<string, string> },
+  ) => FakeBashBehavior;
   /** このケースの用意で投げる */
   failFor?: (evalCase: EvalCase) => Error | undefined;
 }
