@@ -3,8 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import {
-  type CaseResult,
-  type EvalRun,
   EvalRunFileError,
   findBaseline,
   type Judgement,
@@ -13,6 +11,7 @@ import {
   summarize,
   writeEvalRun,
 } from "./result.ts";
+import { caseResult, evalRun } from "./testing.ts";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -34,20 +33,6 @@ const judgement = (verdict: Judgement["verdict"], overrides: Partial<Judgement> 
   latencyMs: 1000,
   ...overrides,
 });
-
-export function caseResult(overrides: Partial<CaseResult> = {}): CaseResult {
-  return {
-    caseId: "c1",
-    caseHash: "sha256:x",
-    workType: "bugfix",
-    attempt: 1,
-    status: "succeeded",
-    reason: "",
-    requests: 10,
-    durationMs: 1000,
-    ...overrides,
-  };
-}
 
 const MODELS = { planner: "p", implementer: "i", verifier: "v" };
 
@@ -130,24 +115,6 @@ describe("summarize", () => {
     expect(summarize([caseResult()], MODELS).verifiers.map((v) => v.label)).toEqual(["verifier"]);
   });
 });
-
-export function evalRun(overrides: Partial<EvalRun> = {}): EvalRun {
-  const cases = overrides.cases ?? [caseResult()];
-  return {
-    version: 1,
-    runId: "20261114T100000Z-evals",
-    setName: "evals",
-    startedAt: "2026-11-14T10:00:00.000Z",
-    finishedAt: "2026-11-14T10:30:00.000Z",
-    harness: { commit: "abc", dirty: false },
-    provider: "google-ai-studio",
-    models: MODELS,
-    options: { cases: null, repeat: 1, maxRequests: 100 },
-    cases,
-    summary: summarize(cases, MODELS),
-    ...overrides,
-  };
-}
 
 describe("結果のファイル", () => {
   test("makeRunId は YYYYMMDDTHHmmssZ-<set>", () => {
