@@ -69,6 +69,32 @@ function note(deps: ReportDeps, jobId: number, detail: object): void {
 }
 
 /**
+ * PR がマージ済みのジョブを ci_waiting → merged にし、merged を記録して PR の本文の CI の欄を書き直す。
+ * 009 の見回りと、push が先に届いたときの 010 のデプロイの実行器から呼ぶ。移せたら true（別の経路が先に移したら false）
+ */
+export async function markMerged(deps: ReportDeps, job: Job): Promise<boolean> {
+  const now = deps.now ?? Date.now;
+  try {
+    transition(
+      deps.db,
+      job.id,
+      "ci_waiting",
+      "merged",
+      now(),
+      { pr_number: job.pr_number },
+      { ci_event_at: null },
+    );
+  } catch (error) {
+    if (error instanceof StateTransitionError) return false;
+    throw error;
+  }
+  note(deps, job.id, { kind: "merged", pr_number: job.pr_number });
+  deps.logger.child({ jobId: job.id }).info({ pr: job.pr_number }, "PR がマージされました");
+  await refreshCiSection(deps, job);
+  return true;
+}
+
+/**
  * 1件を評価する（research R3）。例外を投げない。GitHub を呼べなければ印を残して skipped（次の周で取り直す）。
  * 記録・PR の本文・報告は、条件付きの更新が1行を変えたときだけ書くので、同じジョブを2回評価しても重複しない
  */
@@ -100,26 +126,7 @@ export async function checkCiJob(deps: CiMonitorDeps, job: Job): Promise<CiCheck
   try {
     const pr = await github.getPullRequest({ repo: job.repo, number: job.pr_number });
     if (pr.merged) {
-      try {
-        transition(
-          db,
-          job.id,
-          "ci_waiting",
-          "merged",
-          now(),
-          { pr_number: job.pr_number },
-          {
-            ci_event_at: null,
-          },
-        );
-      } catch (error) {
-        if (error instanceof StateTransitionError) return "skipped";
-        throw error;
-      }
-      note(deps, job.id, { kind: "merged", pr_number: job.pr_number });
-      log.info({ pr: job.pr_number }, "PR がマージされました");
-      await refreshCiSection(deps, job);
-      return "merged";
+      return (await markMerged(deps, job)) ? "merged" : "skipped";
     }
     if (pr.state === "closed") {
       await failJob(deps, job, "pr_closed", `PR #${job.pr_number} がマージされずに閉じられました`);

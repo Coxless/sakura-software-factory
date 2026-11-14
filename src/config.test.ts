@@ -646,3 +646,49 @@ describe("requireEnv", () => {
     expect(() => requireEnv("FACTORY_TEST_MISSING")).toThrow(/FACTORY_TEST_MISSING/);
   });
 });
+
+describe("parseConfig: [staging]（010）", () => {
+  test("省略すると既定値が入り、デプロイは止まっている", () => {
+    expect(parseConfig(MINIMAL, BASE_DIR).staging).toEqual({
+      repo: "",
+      project: "sakura-staging",
+      image_name: "sakura-staging-app",
+      port: 3100,
+      health_path: "/healthz",
+      health_timeout_seconds: 60,
+      health_interval_seconds: 2,
+      health_successes: 3,
+      build_timeout_seconds: 600,
+      keep_images: 5,
+      public_url: "",
+    });
+  });
+
+  test("値を指定できる", () => {
+    const config = parseConfig(
+      `${MINIMAL}\n[staging]\nrepo = "Coxless/factory-sandbox"\nport = 3199\npublic_url = "https://staging.example.jp"\nkeep_images = 2\n`,
+      BASE_DIR,
+    );
+    expect(config.staging.repo).toBe("Coxless/factory-sandbox");
+    expect(config.staging.port).toBe(3199);
+    expect(config.staging.public_url).toBe("https://staging.example.jp");
+    expect(config.staging.keep_images).toBe(2);
+  });
+
+  test.each([
+    ['repo = "a"', "/staging/repo"],
+    ['project = "Bad Name"', "/staging/project"],
+    ['image_name = "x:tag"', "/staging/image_name"],
+    ["port = 80", "/staging/port"],
+    ['health_path = "healthz"', "/staging/health_path"],
+    ["health_timeout_seconds = 0", "/staging/health_timeout_seconds"],
+    ["health_successes = 21", "/staging/health_successes"],
+    ["keep_images = 1", "/staging/keep_images"],
+    ['public_url = "ftp://x"', "/staging/public_url"],
+    ["build_timeout_seconds = 29", "/staging/build_timeout_seconds"],
+    ["health_interval_seconds = 61", "/staging/health_interval_seconds"],
+    ['compose_file = "x.yaml"', "/staging/compose_file"],
+  ])("不正な値 %s はエラー", (line, path) => {
+    expect(issuesOf(`${MINIMAL}\n[staging]\n${line}\n`).map((i) => i.path)).toEqual([path]);
+  });
+});

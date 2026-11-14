@@ -1,5 +1,5 @@
 set -eu
 
 apt-get update
-apt-get install -y --no-install-recommends ca-certificates curl git ripgrep docker.io shellcheck
+apt-get install -y --no-install-recommends ca-certificates curl git ripgrep docker.io docker-compose-v2 shellcheck
 usermod -aG docker workshop

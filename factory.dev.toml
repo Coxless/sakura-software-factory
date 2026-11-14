@@ -127,3 +127,7 @@ max_file_list_chars = 10000   # 計画役に渡すファイル一覧の上限
 install_command = "pnpm install --frozen-lockfile"
 # CI 失敗後のやり直しで実装役に渡す CI のログの合計の上限（1000〜100000。失敗箇所の前後だけを残す。009）
 max_ci_log_chars = 12000
+
+[staging]
+# ステージングデプロイ（010）。開発用の設定ではデプロイしない（pipeline:dev・eval:dev は push を受けない）
+repo = ""

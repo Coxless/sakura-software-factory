@@ -42,7 +42,12 @@ export const LLM_CALL_STATUSES = ["ok", "error"] as const;
 /** 失敗の種類（002 research R6）。予算切れは送らないので記録しない */
 export const LLM_ERROR_KINDS = ["transient", "permanent", "timeout", "aborted"] as const;
 export type LlmErrorKind = (typeof LLM_ERROR_KINDS)[number];
-export const DEPLOYMENT_STATUSES = ["running", "succeeded", "failed"] as const;
+/** デプロイの状態（010 data-model.md 1章） */
+export const DEPLOYMENT_STATUSES = ["queued", "running", "succeeded", "failed"] as const;
+export type DeploymentStatus = (typeof DEPLOYMENT_STATUSES)[number];
+/** デプロイが失敗した段階（010）。release・health だけがロールバックする */
+export const DEPLOY_STAGES = ["fetch", "build", "release", "health", "interrupted"] as const;
+export type DeployStage = (typeof DEPLOY_STAGES)[number];
 /** ツールを使う工程の実行1回の終わり方（004 research R12） */
 export const AGENT_RUN_OUTCOMES = [
   "completed",
@@ -204,23 +209,50 @@ export const agentRuns = sqliteTable(
   ],
 );
 
+/** デプロイ1件ごとの記録（010 data-model.md 1章）。積んだ順（id）に1件ずつ処理する */
 export const deployments = sqliteTable(
   "deployments",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    /** 人間が直接 main に push した場合は NULL */
+    /** owner/name */
+    repo: text("repo").notNull(),
+    /** 人間が直接 main に push した・結び付けられなかった場合は NULL */
     job_id: integer("job_id").references(() => jobs.id),
+    /** push の after（デプロイする commit） */
     commit_sha: text("commit_sha").notNull(),
+    /** push の before。0 だけ・不明なら NULL */
+    before_sha: text("before_sha"),
     image_tag: text("image_tag").notNull(),
     status: text("status", { enum: DEPLOYMENT_STATUSES }).notNull(),
+    /** 失敗した段階。failed のときだけ */
+    failed_stage: text("failed_stage", { enum: DEPLOY_STAGES }),
+    /** ステージングを戻した・止めた */
     rolled_back: integer("rolled_back", { mode: "boolean" }).notNull().default(false),
+    /** 戻し先のイメージ。止めたなら NULL */
     rolled_back_to: text("rolled_back_to"),
+    /** 戻した版のヘルスチェックが通ったか。戻していない・止めたなら NULL */
+    rollback_healthy: integer("rollback_healthy", { mode: "boolean" }),
+    revert_pr_number: integer("revert_pr_number"),
+    /** 失敗・作らなかった理由など（伏せ字済み） */
+    error: text("error"),
     created_at: integer("created_at").notNull(),
+    started_at: integer("started_at"),
     finished_at: integer("finished_at"),
   },
   (t) => [
-    index("deployments_status_created_at_idx").on(t.status, t.created_at),
+    unique("deployments_repo_commit_unique").on(t.repo, t.commit_sha),
+    index("deployments_status_id_idx").on(t.status, t.id),
+    index("deployments_job_id_idx").on(t.job_id),
     check("deployments_status_check", oneOf(t.status, DEPLOYMENT_STATUSES)),
+    check("deployments_failed_stage_check", oneOf(t.failed_stage, DEPLOY_STAGES)),
+    check(
+      "deployments_failed_stage_status_check",
+      sql`(${t.status} = 'failed') = (${t.failed_stage} IS NOT NULL)`,
+    ),
+    check(
+      "deployments_rollback_check",
+      sql`${t.rolled_back} = 1 OR (${t.rolled_back_to} IS NULL AND ${t.rollback_healthy} IS NULL)`,
+    ),
   ],
 );
 

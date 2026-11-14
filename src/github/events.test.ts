@@ -1,7 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { PayloadError, parseAgentCommand, toAgentRequest, toCiEvent } from "./events.ts";
+import {
+  PayloadError,
+  parseAgentCommand,
+  toAgentRequest,
+  toCiEvent,
+  toPushEvent,
+} from "./events.ts";
 
 const fixture = (name: string): Record<string, unknown> =>
   JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", `${name}.json`), "utf8"));
@@ -166,5 +172,48 @@ describe("toCiEvent（009）", () => {
     delete (payload.check_suite as Record<string, unknown>).head_sha;
     expect(() => toCiEvent("check_suite", payload)).toThrow(PayloadError);
     expect(() => toCiEvent("pull_request", { action: "closed" })).toThrow(PayloadError);
+  });
+});
+
+describe("toPushEvent（010）", () => {
+  test("main への push", () => {
+    expect(toPushEvent("push", fixture("push.main"))).toEqual({
+      kind: "event",
+      event: {
+        repo: "octo-org/demo",
+        ref: "refs/heads/main",
+        defaultBranch: "main",
+        before: "1".repeat(40),
+        after: "2".repeat(40),
+        deleted: false,
+      },
+    });
+  });
+
+  test("deleted を省くと偽、真なら真", () => {
+    const { deleted: _omit, ...rest } = fixture("push.main");
+    const omitted = toPushEvent("push", rest);
+    expect(omitted.kind === "event" && omitted.event.deleted).toBe(false);
+    const removed = toPushEvent("push", {
+      ...fixture("push.main"),
+      deleted: true,
+      after: "0".repeat(40),
+    });
+    expect(removed.kind === "event" && removed.event.deleted).toBe(true);
+  });
+
+  test("項目が欠けている・commit の形が違うと PayloadError", () => {
+    const { repository: _r, ...noRepo } = fixture("push.main");
+    expect(() => toPushEvent("push", noRepo)).toThrow(PayloadError);
+    expect(() => toPushEvent("push", { ...fixture("push.main"), after: "abc" })).toThrow(
+      PayloadError,
+    );
+  });
+
+  test("ほかのイベントは ignored", () => {
+    expect(toPushEvent("create", fixture("push.main"))).toEqual({
+      kind: "ignored",
+      reason: "event",
+    });
   });
 });

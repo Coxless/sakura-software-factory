@@ -202,6 +202,33 @@ export const FactoryConfigSchema = Type.Object(
       },
       { ...strict, default: {} },
     ),
+    staging: Type.Object(
+      {
+        /** main への push をデプロイするリポジトリ（owner/name）。空ならデプロイしない（010） */
+        repo: Type.String({ pattern: "^$|^[^/\\s]+/[^/\\s]+$", default: "" }),
+        /** docker compose のプロジェクト名 */
+        project: Type.String({ pattern: "^[a-z0-9][a-z0-9_-]*$", default: "sakura-staging" }),
+        /** イメージの名前（タグは commit の先頭 12 文字） */
+        image_name: Type.String({
+          pattern: "^[a-z0-9][a-z0-9._/-]*$",
+          default: "sakura-staging-app",
+        }),
+        /** 127.0.0.1 に公開するポート（deploy/Caddyfile の転送先と合わせる） */
+        port: Range(1024, 65535, 3100),
+        health_path: Type.String({ pattern: "^/", default: "/healthz" }),
+        health_timeout_seconds: Range(5, 600, 60),
+        health_interval_seconds: Range(1, 60, 2),
+        /** 続けて 200 が返る回数 */
+        health_successes: Range(1, 20, 3),
+        /** 取得とビルドの時間の上限 */
+        build_timeout_seconds: Range(30, 3600, 600),
+        /** 残しておく成功したイメージの数 */
+        keep_images: Range(2, 50, 5),
+        /** PR の本文に書くステージングの URL。空なら書かない */
+        public_url: Type.String({ pattern: "^$|^https?://", default: "" }),
+      },
+      { ...strict, default: {} },
+    ),
   },
   strict,
 );

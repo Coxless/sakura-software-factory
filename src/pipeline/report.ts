@@ -3,8 +3,9 @@ import type { FactoryConfig } from "../config.ts";
 import type { GitHubPort } from "../github/port.ts";
 import type { Logger } from "../log.ts";
 import type { Db } from "../queue/db.ts";
+import { listDeploymentsForJob } from "../queue/deployments.ts";
 import { countLlmCallsForJob } from "../queue/llm-calls.ts";
-import { type Job, type JobEvent, jobEvents, jobs } from "../queue/schema.ts";
+import { type Deployment, type Job, type JobEvent, jobEvents, jobs } from "../queue/schema.ts";
 import { maskSecrets, REDACTED } from "../trace/mask.ts";
 import type { DiffStat } from "./diff.ts";
 import type { Plan } from "./plan.ts";
@@ -31,6 +32,8 @@ export const FAILURE_KINDS = [
   "ci_timeout",
   "ci_unfixed",
   "pr_closed",
+  // 010
+  "deploy_failed",
 ] as const;
 export type FailureKind = (typeof FAILURE_KINDS)[number];
 
@@ -70,6 +73,8 @@ function describeKind(config: FactoryConfig, kind: FailureKind): string {
       return "CI の失敗を受けたやり直しで、変更がありませんでした";
     case "pr_closed":
       return "PR がマージされずに閉じられました";
+    case "deploy_failed":
+      return "ステージングへのデプロイ（取得・ビルド）に失敗しました。ステージングは前の版のままです";
   }
 }
 
@@ -237,7 +242,8 @@ function errorText(error: unknown): string {
  * - 状態は DB の今の値から failed に移す（渡した job が古くてもよい）。終わりの状態なら何もしない
  * - 投稿の前に report_posted の記録を見て、二重に投稿しない
  * - 投稿に失敗したら job_events に report_failed を残す（ジョブは failed のまま）
- * - PR のあるジョブ（pr_closed 以外）は、報告のあとに PR を Draft に変えて人間に渡す（009 research R13）
+ * - PR のあるジョブ（pr_closed 以外）は、報告のあとに PR を Draft に変えて人間に渡す（009 research R13）。
+ *   PR がマージ済みのジョブ（merged・deploying から失敗したもの）は変えない（010 research R10）
  */
 export async function failJob(
   deps: ReportDeps,
@@ -279,7 +285,8 @@ export async function failJob(
     .all()
     .some((event) => event.detail?.includes('"kind":"report_posted"'));
   if (!posted) await postFailureReport(deps, current, failed, kind, extra);
-  if (failed.pr_number !== null && kind !== "pr_closed") {
+  const merged = current.status === "merged" || current.status === "deploying";
+  if (failed.pr_number !== null && kind !== "pr_closed" && !merged) {
     await handOverPullRequest(deps, failed, kind, secrets);
   }
 }
@@ -707,4 +714,198 @@ async function handOverPullRequest(
     converted_to_draft: converted,
   });
   await refreshCiSection(deps, job, secrets);
+}
+
+// ---- 010: PR の本文のデプロイの欄・ロールバックの報告・revert PR（contracts/report.md） ----
+
+export const DEPLOY_SECTION_START = "<!-- factory:deploy -->";
+export const DEPLOY_SECTION_END = "<!-- /factory:deploy -->";
+
+/** ヘルスチェックの結果（deploy/health.ts の HealthResult と同じ形） */
+export interface HealthSummary {
+  healthy: boolean;
+  attempts: number;
+  last: string;
+}
+
+function revertText(deployment: Pick<Deployment, "revert_pr_number" | "error">): string {
+  if (deployment.revert_pr_number !== null) return `revert PR #${deployment.revert_pr_number}`;
+  return `revert PR は作りませんでした${deployment.error ? `（${truncate(deployment.error, 200)}）` : ""}`;
+}
+
+function rollbackText(deployment: Deployment): string {
+  const target =
+    deployment.rolled_back_to === null
+      ? "ステージングを止めました"
+      : `\`${deployment.rolled_back_to}\` に戻しました（戻した版のヘルスチェック: ${deployment.rollback_healthy ? "通過" : "失敗"}）`;
+  return `${target}。${revertText(deployment)}`;
+}
+
+/** デプロイの欄（contracts/report.md 1章）。行は古い順に渡す */
+export function renderDeploySection(config: FactoryConfig, rows: readonly Deployment[]): string {
+  const lines = rows.map((d) => {
+    const sha = shortSha(d.commit_sha);
+    const image = `\`${d.image_tag}\``;
+    switch (d.status) {
+      case "queued":
+        return `| ${sha} | ${image} | ⏳ デプロイを待っています | |`;
+      case "running":
+        return `| ${sha} | ${image} | ⏳ デプロイ中 | |`;
+      case "succeeded":
+        return `| ${sha} | ${image} | ✅ デプロイしました | ${config.staging.public_url === "" ? "ステージングで動いています" : config.staging.public_url} |`;
+      case "failed":
+        if (d.failed_stage === "fetch" || d.failed_stage === "build") {
+          return `| ${sha} | ${image} | ❌ ${d.failed_stage === "fetch" ? "取得" : "ビルド"}に失敗しました | ステージングは前の版のままです |`;
+        }
+        if (d.failed_stage === "interrupted") return `| ${sha} | ${image} | 🛑 中断しました | |`;
+        return `| ${sha} | ${image} | ↩️ 戻しました | ${d.failed_stage === "release" ? "入れ替えに失敗しました" : "ヘルスチェックが通りませんでした"}。${rollbackText(d)} |`;
+    }
+    return "";
+  });
+  const body =
+    lines.length === 0
+      ? ["main へのマージを待っています"]
+      : ["| commit | イメージ | 結果 | 内容 |", "|---|---|---|---|", ...lines];
+  return [DEPLOY_SECTION_START, "#### ステージング", ...body, DEPLOY_SECTION_END].join("\n");
+}
+
+/** 本文のデプロイの欄を置き換える。なければ CI の欄の後ろ、それもなければ末尾に足す */
+export function replaceDeploySection(body: string, section: string): string {
+  const start = body.indexOf(DEPLOY_SECTION_START);
+  const end = body.indexOf(DEPLOY_SECTION_END);
+  if (start !== -1 && end > start) {
+    return `${body.slice(0, start)}${section}${body.slice(end + DEPLOY_SECTION_END.length)}`;
+  }
+  const ci = body.indexOf(CI_SECTION_END);
+  if (ci !== -1) {
+    const at = ci + CI_SECTION_END.length;
+    return `${body.slice(0, at)}\n\n${section}${body.slice(at)}`;
+  }
+  return body.trim() === "" ? section : `${body.replace(/\s+$/, "")}\n\n${section}`;
+}
+
+/**
+ * PR の本文のデプロイの欄を deployments から作り直して書く（research R10）。PR がない・失敗しても例外を投げず、
+ * 失敗は deploy_body_failed に残す
+ */
+export async function refreshDeploySection(
+  deps: ReportDeps,
+  job: Pick<Job, "id" | "repo" | "pr_number">,
+): Promise<void> {
+  if (job.pr_number === null) return;
+  try {
+    const pr = await deps.github.getPullRequest({ repo: job.repo, number: job.pr_number });
+    const section = renderDeploySection(deps.config, listDeploymentsForJob(deps.db, job.id));
+    const body = maskWith(replaceDeploySection(pr.body, section));
+    if (body === pr.body) return;
+    await deps.github.updatePullRequestBody({ repo: job.repo, number: job.pr_number, body });
+  } catch (error) {
+    const message = maskWith(errorText(error));
+    noteEvent(deps, job.id, "error", { kind: "deploy_body_failed", message });
+    deps.logger.warn(
+      { jobId: job.id, error: message },
+      "PR の本文のデプロイの欄を書けませんでした",
+    );
+  }
+}
+
+function healthText(health: HealthSummary | undefined): string {
+  if (!health) return "入れ替えに失敗したため確かめていません";
+  return `${health.attempts} 回試して${health.healthy ? "通過" : "通りませんでした"}（最後: ${health.last}）`;
+}
+
+export interface RollbackReportInput {
+  jobId: number | null;
+  prNumber: number | null;
+  deployment: Deployment;
+  /** 新しい版のヘルスチェック。入れ替え（release）で失敗したなら undefined */
+  health?: HealthSummary;
+  revertPrUrl?: string;
+}
+
+/** ロールバックしたときの Issue への報告（contracts/report.md 2章） */
+export function renderRollbackReport(input: RollbackReportInput): string {
+  const d = input.deployment;
+  const target =
+    d.rolled_back_to === null
+      ? "なし（ステージングを止めました）"
+      : `\`${d.rolled_back_to}\`（戻した版のヘルスチェック: ${d.rollback_healthy ? "通過" : "失敗"}）`;
+  const revert =
+    d.revert_pr_number !== null
+      ? `#${d.revert_pr_number}（auto-merge は有効にしていません。確かめてからマージしてください）`
+      : `作りませんでした${d.error ? `（${truncate(d.error, 300)}）` : ""}`;
+  return [
+    `### 🏭 ファクトリー: ジョブ #${input.jobId ?? "—"} の変更をステージングから戻しました`,
+    "",
+    "| 項目 | 内容 |",
+    "|---|---|",
+    ...(input.prNumber !== null ? [`| PR | #${input.prNumber} |`] : []),
+    `| commit | ${shortSha(d.commit_sha)} |`,
+    `| 失敗 | ${d.failed_stage === "release" ? "ステージングの入れ替えに失敗しました" : "ヘルスチェックが通りませんでした"} |`,
+    `| ヘルスチェック | ${healthText(input.health)} |`,
+    `| 戻し先 | ${target} |`,
+    `| revert PR | ${revert} |`,
+  ].join("\n");
+}
+
+/** revert PR の題と本文（contracts/report.md 3章） */
+export function renderRevertPullRequest(input: {
+  deployment: Pick<Deployment, "commit_sha" | "before_sha" | "failed_stage">;
+  prNumber: number | null;
+  health?: HealthSummary;
+  rolledBackTo: string | null;
+}): { title: string; body: string } {
+  const after = input.deployment.commit_sha.slice(0, 7);
+  const before = (input.deployment.before_sha ?? "").slice(0, 7);
+  const failure =
+    input.deployment.failed_stage === "release"
+      ? "ステージングの入れ替え"
+      : "ステージングのヘルスチェック";
+  return {
+    title: `Revert ${after}（${failure}の失敗）`,
+    body: [
+      "### 🏭 ファクトリー: ステージングで動かなかった変更を戻す PR",
+      "",
+      `\`${after}\`${input.prNumber !== null ? `（PR #${input.prNumber}）` : ""}をデプロイしたところ、${failure}が通らなかったため、ステージングを直前の版に戻しました。`,
+      `この PR は \`${before}..${after}\` の変更を打ち消します。`,
+      "",
+      "| 項目 | 内容 |",
+      "|---|---|",
+      `| ヘルスチェック | ${healthText(input.health)} |`,
+      `| 戻し先 | ${input.rolledBackTo === null ? "なし（ステージングを止めました）" : `\`${input.rolledBackTo}\``} |`,
+      "",
+      "検査役の判定を通っていないため、auto-merge は有効にしていません。内容を確かめてからマージしてください。",
+    ].join("\n"),
+  };
+}
+
+/** ロールバックの報告を Issue に1回だけ投稿する（report_posted の記録で二重にしない）。例外を投げない */
+export async function postRollbackReport(
+  deps: ReportDeps,
+  job: Pick<Job, "id" | "repo" | "issue_number" | "pr_number">,
+  input: Omit<RollbackReportInput, "jobId" | "prNumber">,
+): Promise<void> {
+  const posted = deps.db
+    .select()
+    .from(jobEvents)
+    .where(and(eq(jobEvents.job_id, job.id), eq(jobEvents.type, "note")))
+    .all()
+    .some((event) => event.detail?.includes('"kind":"report_posted"'));
+  if (posted) return;
+  const body = maskWith(renderRollbackReport({ ...input, jobId: job.id, prNumber: job.pr_number }));
+  try {
+    const url = await deps.github.createIssueComment({
+      repo: job.repo,
+      issueNumber: job.issue_number,
+      body,
+    });
+    noteEvent(deps, job.id, "note", { kind: "report_posted", comment_url: url });
+  } catch (error) {
+    const message = maskWith(errorText(error));
+    noteEvent(deps, job.id, "error", { kind: "report_failed", message });
+    deps.logger.error(
+      { jobId: job.id, error: message },
+      "ロールバックの報告を投稿できませんでした",
+    );
+  }
 }

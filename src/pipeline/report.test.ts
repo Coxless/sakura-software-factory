@@ -3,7 +3,14 @@ import { describe, expect, test } from "vitest";
 import { parseConfig } from "../config.ts";
 import { FakeGitHub } from "../github/testing.ts";
 import { createLogger } from "../log.ts";
-import { type JobStatus, jobEvents, jobs, llmCalls } from "../queue/schema.ts";
+import {
+  type Deployment,
+  deployments,
+  type JobStatus,
+  jobEvents,
+  jobs,
+  llmCalls,
+} from "../queue/schema.ts";
 import { migratedMemoryDb } from "../queue/testing.ts";
 import {
   FAILURE_KINDS,
@@ -11,12 +18,18 @@ import {
   failJob,
   listCiEvents,
   maskWith,
+  postRollbackReport,
   pullRequestTitle,
+  refreshDeploySection,
   renderCiSection,
+  renderDeploySection,
   renderFailureReport,
+  renderRevertPullRequest,
+  renderRollbackReport,
   renderShipNotice,
   renderShipReport,
   replaceCiSection,
+  replaceDeploySection,
   type ShipReportInput,
 } from "./report.ts";
 import type { PipelineResult } from "./run.ts";
@@ -95,6 +108,8 @@ const DESCRIPTIONS: Record<FailureKind, string> = {
   ci_timeout: "CI の結論が 30 分以内に出ませんでした",
   ci_unfixed: "CI の失敗を受けたやり直しで、変更がありませんでした",
   pr_closed: "PR がマージされずに閉じられました",
+  deploy_failed:
+    "ステージングへのデプロイ（取得・ビルド）に失敗しました。ステージングは前の版のままです",
 };
 
 describe("renderFailureReport", () => {
@@ -675,5 +690,241 @@ describe("failJob の引き渡し（009）", () => {
       .map((e) => JSON.parse(e.detail ?? "{}").kind);
     expect(errors).toEqual(["handover_failed"]);
     expect(ctx.github.pullRequests[0]?.body).toContain("Draft に変えられませんでした");
+  });
+});
+
+describe("failJob のデプロイの失敗（010）", () => {
+  test.each(["merged", "deploying"] as const)(
+    "%s から失敗したジョブは PR を Draft に変えない",
+    async (status) => {
+      const ctx = setup(status);
+      ctx.db.update(jobs).set({ pr_number: 5 }).run();
+      ctx.github.addPullRequest({
+        number: 5,
+        repo: "octo-org/demo",
+        state: "closed",
+        merged: true,
+      });
+      await failJob(ctx.deps, ctx.job, "deploy_failed", "ビルドに失敗しました");
+      expect(ctx.db.select().from(jobs).get()?.status).toBe("failed");
+      expect(ctx.github.count("getPullRequest")).toBe(0);
+      expect(ctx.github.count("convertToDraft")).toBe(0);
+      expect(ctx.github.comments[0]?.body).toContain(
+        "ステージングへのデプロイ（取得・ビルド）に失敗しました",
+      );
+      expect(ctx.github.comments[0]?.body).toContain("`deploy_failed`");
+    },
+  );
+});
+
+describe("デプロイの欄（010 contracts/report.md 1章）", () => {
+  const A = "a".repeat(40);
+  const row = (overrides: Partial<Deployment>): Deployment => ({
+    id: 1,
+    repo: "octo-org/demo",
+    job_id: 1,
+    commit_sha: A,
+    before_sha: "b".repeat(40),
+    image_tag: "app:aaaaaaaaaaaa",
+    status: "succeeded",
+    failed_stage: null,
+    rolled_back: false,
+    rolled_back_to: null,
+    rollback_healthy: null,
+    revert_pr_number: null,
+    error: null,
+    created_at: 1,
+    started_at: 1,
+    finished_at: 2,
+    ...overrides,
+  });
+  const withUrl = parseConfig(
+    `[llm]\nbase_url = "https://x.test/v1"\n[models]\nplanner = "p"\nimplementer = "i"\nverifier = "v"\nfallback = "f"\n[budget]\nmonthly_requests = 10\nper_job_requests = 5\n[github]\nallowed_users = ["u"]\n[staging]\npublic_url = "https://staging.example.jp"\n`,
+    "/srv",
+  );
+
+  test("各状態の行", () => {
+    const section = renderDeploySection(CONFIG, [
+      row({ id: 1, status: "running" }),
+      row({ id: 2 }),
+      row({ id: 3, status: "failed", failed_stage: "build" }),
+      row({
+        id: 4,
+        status: "failed",
+        failed_stage: "health",
+        rolled_back: true,
+        rolled_back_to: "app:old",
+        rollback_healthy: true,
+        revert_pr_number: 9,
+      }),
+      row({
+        id: 5,
+        status: "failed",
+        failed_stage: "release",
+        rolled_back: true,
+        error: "衝突しました",
+      }),
+      row({ id: 6, status: "failed", failed_stage: "interrupted" }),
+    ]);
+    expect(section.split("\n")).toEqual([
+      "<!-- factory:deploy -->",
+      "#### ステージング",
+      "| commit | イメージ | 結果 | 内容 |",
+      "|---|---|---|---|",
+      "| `aaaaaaa` | `app:aaaaaaaaaaaa` | ⏳ デプロイ中 | |",
+      "| `aaaaaaa` | `app:aaaaaaaaaaaa` | ✅ デプロイしました | ステージングで動いています |",
+      "| `aaaaaaa` | `app:aaaaaaaaaaaa` | ❌ ビルドに失敗しました | ステージングは前の版のままです |",
+      "| `aaaaaaa` | `app:aaaaaaaaaaaa` | ↩️ 戻しました | ヘルスチェックが通りませんでした。`app:old` に戻しました（戻した版のヘルスチェック: 通過）。revert PR #9 |",
+      "| `aaaaaaa` | `app:aaaaaaaaaaaa` | ↩️ 戻しました | 入れ替えに失敗しました。ステージングを止めました。revert PR は作りませんでした（衝突しました） |",
+      "| `aaaaaaa` | `app:aaaaaaaaaaaa` | 🛑 中断しました | |",
+      "<!-- /factory:deploy -->",
+    ]);
+  });
+
+  test("public_url があれば成功の行に出す", () => {
+    expect(renderDeploySection(withUrl, [row({})])).toContain("| https://staging.example.jp |");
+  });
+
+  test("置き換え・CI の欄の後ろに入れる・末尾に足す", () => {
+    const section = renderDeploySection(CONFIG, [row({})]);
+    const ci = "<!-- factory:ci -->\n#### CI\nx\n<!-- /factory:ci -->";
+    expect(replaceDeploySection(`まとめ\n${ci}\n\n末尾`, section)).toBe(
+      `まとめ\n${ci}\n\n${section}\n\n末尾`,
+    );
+    const once = replaceDeploySection(`まとめ\n${ci}`, renderDeploySection(CONFIG, []));
+    expect(replaceDeploySection(once, section)).toBe(`まとめ\n${ci}\n\n${section}`);
+    expect(replaceDeploySection("まとめ\n\n", section)).toBe(`まとめ\n\n${section}`);
+  });
+
+  test("refreshDeploySection は deployments から作り直して書き、失敗は deploy_body_failed", async () => {
+    const ctx = setup("deploying");
+    ctx.db.update(jobs).set({ pr_number: 5 }).run();
+    ctx.github.addPullRequest({ number: 5, body: "まとめ" });
+    ctx.db
+      .insert(deployments)
+      .values({
+        repo: "octo-org/demo",
+        job_id: ctx.job.id,
+        commit_sha: A,
+        image_tag: "app:aaaaaaaaaaaa",
+        status: "succeeded",
+        created_at: 1,
+      })
+      .run();
+    const job = ctx.db.select().from(jobs).get();
+    if (!job) throw new Error("no job");
+    await refreshDeploySection(ctx.deps, job);
+    expect(ctx.github.pullRequests[0]?.body).toContain("✅ デプロイしました");
+    ctx.github.options.fail = { updatePullRequestBody: new Error("boom") };
+    ctx.db.update(deployments).set({ status: "failed", failed_stage: "build" }).run();
+    await refreshDeploySection(ctx.deps, job);
+    const errors = ctx.db
+      .select()
+      .from(jobEvents)
+      .all()
+      .filter((e) => e.type === "error")
+      .map((e) => JSON.parse(e.detail ?? "{}").kind);
+    expect(errors).toEqual(["deploy_body_failed"]);
+  });
+});
+
+describe("ロールバックの報告と revert PR（010 contracts/report.md 2・3章）", () => {
+  const A = "a".repeat(40);
+  const B = "b".repeat(40);
+  const failed = (overrides: Partial<Deployment> = {}): Deployment => ({
+    id: 1,
+    repo: "octo-org/demo",
+    job_id: 1,
+    commit_sha: A,
+    before_sha: B,
+    image_tag: "app:aaaaaaaaaaaa",
+    status: "failed",
+    failed_stage: "health",
+    rolled_back: true,
+    rolled_back_to: "app:0123456789ab",
+    rollback_healthy: true,
+    revert_pr_number: 35,
+    error: null,
+    created_at: 1,
+    started_at: 1,
+    finished_at: 2,
+    ...overrides,
+  });
+  const health = { healthy: false, attempts: 30, last: "500" };
+
+  test("報告: 戻し先あり・revert PR あり", () => {
+    expect(
+      renderRollbackReport({ jobId: 12, prNumber: 34, deployment: failed(), health }).split("\n"),
+    ).toEqual([
+      "### 🏭 ファクトリー: ジョブ #12 の変更をステージングから戻しました",
+      "",
+      "| 項目 | 内容 |",
+      "|---|---|",
+      "| PR | #34 |",
+      "| commit | `aaaaaaa` |",
+      "| 失敗 | ヘルスチェックが通りませんでした |",
+      "| ヘルスチェック | 30 回試して通りませんでした（最後: 500） |",
+      "| 戻し先 | `app:0123456789ab`（戻した版のヘルスチェック: 通過） |",
+      "| revert PR | #35（auto-merge は有効にしていません。確かめてからマージしてください） |",
+    ]);
+  });
+
+  test("報告: 戻し先なし・戻した版が不健康・revert PR を作らなかった", () => {
+    const stopped = renderRollbackReport({
+      jobId: 12,
+      prNumber: null,
+      deployment: failed({
+        rolled_back_to: null,
+        rollback_healthy: null,
+        revert_pr_number: null,
+        error: "conflict",
+      }),
+      health,
+    });
+    expect(stopped).toContain("| 戻し先 | なし（ステージングを止めました） |");
+    expect(stopped).toContain("| revert PR | 作りませんでした（conflict） |");
+    expect(stopped).not.toContain("| PR |");
+    const unhealthy = renderRollbackReport({
+      jobId: 1,
+      prNumber: 2,
+      deployment: failed({ rollback_healthy: false, failed_stage: "release" }),
+    });
+    expect(unhealthy).toContain("戻した版のヘルスチェック: 失敗");
+    expect(unhealthy).toContain("| 失敗 | ステージングの入れ替えに失敗しました |");
+    expect(unhealthy).toContain("| ヘルスチェック | 入れ替えに失敗したため確かめていません |");
+  });
+
+  test("revert PR の題と本文", () => {
+    const { title, body } = renderRevertPullRequest({
+      deployment: failed(),
+      prNumber: 34,
+      health,
+      rolledBackTo: "app:0123456789ab",
+    });
+    expect(title).toBe("Revert aaaaaaa（ステージングのヘルスチェックの失敗）");
+    expect(body).toContain("`aaaaaaa`（PR #34）をデプロイしたところ");
+    expect(body).toContain("`bbbbbbb..aaaaaaa` の変更を打ち消します");
+    expect(body).toContain("| 戻し先 | `app:0123456789ab` |");
+    expect(body).toContain("auto-merge は有効にしていません");
+  });
+
+  test("postRollbackReport は1回だけ投稿し、失敗は report_failed", async () => {
+    const ctx = setup("rolled_back");
+    const job = ctx.db.select().from(jobs).get();
+    if (!job) throw new Error("no job");
+    await postRollbackReport(ctx.deps, job, { deployment: failed(), health });
+    await postRollbackReport(ctx.deps, job, { deployment: failed(), health });
+    expect(ctx.github.comments).toHaveLength(1);
+    const other = setup("rolled_back");
+    other.github.options.fail = { createIssueComment: new Error("down") };
+    const otherJob = other.db.select().from(jobs).get();
+    if (!otherJob) throw new Error("no job");
+    await postRollbackReport(other.deps, otherJob, { deployment: failed(), health });
+    const kinds = other.db
+      .select()
+      .from(jobEvents)
+      .all()
+      .map((e) => JSON.parse(e.detail ?? "{}").kind);
+    expect(kinds).toEqual(["report_failed"]);
   });
 });

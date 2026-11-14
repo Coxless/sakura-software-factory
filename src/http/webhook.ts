@@ -1,13 +1,15 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { FactoryConfig } from "../config.ts";
-import { PayloadError, toAgentRequest, toCiEvent } from "../github/events.ts";
+import { imageTagFor } from "../deploy/staging.ts";
+import { PayloadError, toAgentRequest, toCiEvent, toPushEvent } from "../github/events.ts";
 import { type AgentRequest, type GitHubPort, WRITE_PERMISSIONS } from "../github/port.ts";
 import { verifySignature } from "../github/signature.ts";
 import { canAcceptNewJob } from "../llm/budget.ts";
 import type { Logger } from "../log.ts";
 import { renderBudgetExhausted, renderUsage } from "../pipeline/report.ts";
 import type { Db } from "../queue/db.ts";
+import { enqueueDeployment } from "../queue/deployments.ts";
 import { enqueueJob, markIntakeStopped, noteCiEvent } from "../queue/jobs.ts";
 import { jobEvents } from "../queue/schema.ts";
 
@@ -25,6 +27,8 @@ export interface WebhookDeps {
   permissionTimeoutMs?: number;
   /** CI の知らせを結び付けたときに見回りを起こす（009） */
   wakeCi?: () => void;
+  /** デプロイを積んだときに実行器を起こす（010） */
+  wakeDeployer?: () => void;
 }
 
 export interface WebhookHandler {
@@ -41,6 +45,7 @@ const NO_STORE = { "Cache-Control": "no-store" } as const;
  * POST /webhook（contracts/webhook.md）。判定の順: 大きさ → 署名 → JSON → ping → 対象の絞り込み → @agent →
  * 許可ユーザーと権限 → 本文が空でない → 予算 → 積む。リアクション・コメント・wake は応答のあとに回す（SC-004）。
  * check_suite・pull_request は JSON のあとで分け、ci_waiting のジョブに印を付けるだけにする（009 contracts/webhook.md）。
+ * push は [staging].repo の既定のブランチへのものだけを deployments に積む（010 contracts/webhook.md）。
  */
 export function createWebhookHandler(deps: WebhookDeps): WebhookHandler {
   const { db, config, logger, github, secret, wake } = deps;
@@ -91,6 +96,65 @@ export function createWebhookHandler(deps: WebhookDeps): WebhookHandler {
       } catch {
         logger.warn({ delivery, event }, "webhook: JSON として解釈できません");
         return c.json({ error: "invalid_payload" }, 400, NO_STORE);
+      }
+
+      if (event === "push") {
+        let push: ReturnType<typeof toPushEvent>;
+        try {
+          push = toPushEvent(event, payload);
+        } catch (error) {
+          if (!(error instanceof PayloadError)) throw error;
+          logger.warn({ delivery, event }, `webhook: ${error.message}`);
+          return c.json({ error: "invalid_payload" }, 400, NO_STORE);
+        }
+        if (push.kind === "ignored") return c.json({ result: "ignored" }, 202, NO_STORE);
+        const { repo, ref, defaultBranch, before, after, deleted } = push.event;
+        const staging = config.staging;
+        const reason =
+          staging.repo === ""
+            ? "staging_disabled"
+            : repo.toLowerCase() !== staging.repo.toLowerCase()
+              ? "repo"
+              : ref !== `refs/heads/${defaultBranch}`
+                ? "ref"
+                : deleted || /^0+$/.test(after)
+                  ? "deleted"
+                  : undefined;
+        if (reason !== undefined) {
+          logger.info({ delivery, event, repo, ref, result: "ignored", reason }, "webhook");
+          return c.json({ result: "ignored" }, 202, NO_STORE);
+        }
+        try {
+          const { deployment, created } = enqueueDeployment(
+            db,
+            {
+              repo: staging.repo,
+              commitSha: after,
+              beforeSha: /^0+$/.test(before) ? null : before,
+              imageTag: imageTagFor(staging, after),
+            },
+            now(),
+          );
+          if (!created) {
+            logger.info(
+              { delivery, event, result: "duplicate", deployment: deployment.id },
+              "webhook",
+            );
+            return c.json({ result: "duplicate", deployment: deployment.id }, 202, NO_STORE);
+          }
+          logger.info(
+            { delivery, event, result: "deploy_queued", deployment: deployment.id, commit: after },
+            "webhook",
+          );
+          defer("デプロイの実行器の起こし", delivery, async () => deps.wakeDeployer?.());
+          return c.json({ result: "deploy_queued", deployment: deployment.id }, 202, NO_STORE);
+        } catch (error) {
+          logger.error(
+            { delivery, event, err: error },
+            "webhook: デプロイを積めません（App の Recent Deliveries から再送できます）",
+          );
+          return c.json({ error: "internal_error" }, 500, NO_STORE);
+        }
       }
 
       if (event === "check_suite" || event === "pull_request") {

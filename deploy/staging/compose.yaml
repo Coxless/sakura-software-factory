@@ -1,0 +1,40 @@
+# ステージングのデモアプリ（010）。仕様: specs/010-staging-deploy/contracts/staging.md
+# ファクトリーが `docker compose -p <[staging].project> -f deploy/staging/compose.yaml up -d` で入れ替える。
+# 渡す環境変数は STAGING_IMAGE（<image_name>:<commit の先頭 12 文字>）と STAGING_PORT（[staging].port）だけ。
+# ファクトリーの秘密情報はここにもコンテナにも渡さない。
+services:
+  app:
+    image: ${STAGING_IMAGE:?STAGING_IMAGE を渡してください}
+    restart: unless-stopped
+    # ループバックにだけ公開し、Caddy が転送する（Docker の公開は ufw を迂回するため。006）
+    ports:
+      - "127.0.0.1:${STAGING_PORT:?STAGING_PORT を渡してください}:3000"
+    environment:
+      PORT: "3000"
+      NODE_ENV: production
+    # 隔離（docs/design/04 層9）: 非 root・読み取り専用・権限なし・資源の上限
+    user: "65534:65534"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    networks:
+      - staging
+    labels:
+      sakura-factory.staging: "1"
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+# このプロジェクトだけのネットワーク（factory・作業場とは別）
+networks:
+  staging: {}

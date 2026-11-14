@@ -123,3 +123,18 @@ max_file_list_chars = 10000   # 計画役に渡すファイル一覧の上限
 install_command = "pnpm install --frozen-lockfile"
 # CI 失敗後のやり直しで実装役に渡す CI のログの合計の上限（1000〜100000。失敗箇所の前後だけを残す。009）
 max_ci_log_chars = 12000
+
+[staging]
+# ステージングデプロイ（010）。項目の説明: specs/010-staging-deploy/contracts/factory-toml.md
+# repo の既定のブランチ（main）への push を受けて、デモアプリをビルドし docker compose で入れ替える。空ならデプロイしない
+repo = "Coxless/factory-sandbox"
+project = "sakura-staging"          # docker compose のプロジェクト名
+image_name = "sakura-staging-app"   # イメージの名前（タグは commit の先頭 12 文字）
+port = 3100                         # 127.0.0.1 に公開するポート（deploy/Caddyfile の転送先と合わせる）
+health_path = "/healthz"            # ヘルスチェックのパス
+health_timeout_seconds = 60         # ヘルスチェックの全体の上限（5〜600）
+health_interval_seconds = 2         # ヘルスチェックの間隔（1〜60）
+health_successes = 3                # 続けて 200 が返る回数（1〜20）
+build_timeout_seconds = 600         # 取得とビルドの時間の上限（30〜3600）
+keep_images = 5                     # 残しておく成功したイメージの数（2〜50）
+public_url = ""                     # PR の本文に書くステージングの URL（VPS の /etc/sakura-factory/factory.toml で設定する）

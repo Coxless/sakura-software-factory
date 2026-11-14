@@ -115,7 +115,23 @@ deployed <コミット> (origin/main)
 | gitleaks                             | `gitleaks version`                                                                            | `8.30.1`                                                                                            |
 | 自動の再起動                         | `sudo systemctl kill -s KILL factory`、30 秒後に `curl -s https://factory.example.jp/healthz` | `{"status":"ok"}`                                                                                   |
 
-ステージング（`https://staging.example.jp`）は 010 でデモアプリを置くまで `502` を返す（想定どおり）。
+ステージング（`https://staging.example.jp`）は、デプロイが一度も成功していないあいだは `502` を返す（想定どおり）。
+
+### ステージング（010）
+
+ファクトリーは `/etc/sakura-factory/factory.toml` の `[staging].repo`（既定 `Coxless/factory-sandbox`）の main への push を受けて、デモアプリをビルドし `docker compose` で入れ替える。仕様: `specs/010-staging-deploy/`
+
+- 初回: `[staging].public_url` に `https://staging.example.jp` を書いて `sudo systemctl restart factory`。起動時に main の先頭がデプロイに積まれる（停止中の push の取りこぼしも同じ仕組みで拾う）
+- App の「Subscribe to events」に `Push` が入っていること（上の表）
+
+| 確認                   | コマンド                                                                                                                                                                                        | 期待する結果                                      |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| 動いている版           | `sudo -u factory docker compose -p sakura-staging ps --format '{{.Image}} {{.Status}}'`                                                                                                         | `sakura-staging-app:<commit の先頭 12 文字> Up …` |
+| 外から                 | 手元から `curl -s https://staging.example.jp/healthz`                                                                                                                                           | `{"status":"ok"}`                                 |
+| ループバックだけに公開 | `sudo ss -ltnp \| grep 3100`                                                                                                                                                                    | `127.0.0.1:3100` だけ                             |
+| デプロイの記録         | `sqlite3 /var/lib/sakura-factory/factory.db "SELECT id, substr(commit_sha,1,7), status, failed_stage, rolled_back, rolled_back_to, revert_pr_number FROM deployments ORDER BY id DESC LIMIT 5"` | 最新が `succeeded`                                |
+
+ヘルスチェックに失敗すると、ファクトリーは直前に成功したイメージに戻して revert PR を作る（auto-merge は有効にしない）。revert PR を確かめてからマージすると、その push もデプロイされる。
 
 ## 6. 更新
 
@@ -132,7 +148,7 @@ sudo /opt/sakura-factory/app/deploy/scripts/update.sh v0.2.0     # タグかコ�
 diff /opt/sakura-factory/app/factory.toml /etc/sakura-factory/factory.toml
 ```
 
-（`[storage]` の3行〔`database_path`・`trace_dir`・`work_dir`〕だけが違うのが正しい状態）
+（`[storage]` の3行〔`database_path`・`trace_dir`・`work_dir`〕と `[staging].public_url` だけが違うのが正しい状態）
 
 ## 7. 困ったとき
 
