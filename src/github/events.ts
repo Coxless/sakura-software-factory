@@ -1,6 +1,6 @@
 import Type, { type Static } from "typebox";
 import Value from "typebox/value";
-import type { AgentRequest } from "./port.ts";
+import type { AgentRequest, CiEvent } from "./port.ts";
 
 /**
  * issue_comment のペイロードのうち、受付で使う項目だけ（余分な項目は許す）。
@@ -97,4 +97,72 @@ export function toAgentRequest(
     instruction: truncate(instruction, maxChars),
   };
   return instruction === "" ? { kind: "empty", request } : { kind: "request", request };
+}
+
+// ---- 009: CI の知らせ（contracts/webhook.md） ----
+
+const Repository = Type.Object({ full_name: Type.String({ pattern: "^[^/\\s]+/[^/\\s]+$" }) });
+
+const CheckSuitePayload = Type.Object({
+  action: Type.String(),
+  check_suite: Type.Object({
+    head_branch: Type.Union([Type.String(), Type.Null()]),
+    head_sha: Type.String({ minLength: 1 }),
+  }),
+  repository: Repository,
+});
+type CheckSuitePayload = Static<typeof CheckSuitePayload>;
+
+const PullRequestPayload = Type.Object({
+  action: Type.String(),
+  pull_request: Type.Object({
+    number: Type.Integer({ minimum: 1 }),
+    merged: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
+  }),
+  repository: Repository,
+});
+type PullRequestPayload = Static<typeof PullRequestPayload>;
+
+export type CiEventResult =
+  | { kind: "event"; event: CiEvent }
+  | { kind: "ignored"; reason: "event" | "action" };
+
+/**
+ * check_suite（completed）・pull_request（closed）のペイロードから CI の知らせを取り出す（009 research R2）。
+ * 知らせは見回りが結論を取り直すきっかけにだけ使い、ペイロードの結論は使わない。項目が欠けていれば PayloadError
+ */
+export function toCiEvent(event: string, payload: unknown): CiEventResult {
+  if (event === "check_suite") {
+    if (!Value.Check(CheckSuitePayload, payload)) {
+      throw new PayloadError("check_suite のペイロードに必要な項目がありません");
+    }
+    const { action, check_suite, repository } = payload as CheckSuitePayload;
+    if (action !== "completed") return { kind: "ignored", reason: "action" };
+    return {
+      kind: "event",
+      event: {
+        kind: "check_suite",
+        repo: repository.full_name,
+        headBranch: check_suite.head_branch,
+        headSha: check_suite.head_sha,
+      },
+    };
+  }
+  if (event === "pull_request") {
+    if (!Value.Check(PullRequestPayload, payload)) {
+      throw new PayloadError("pull_request のペイロードに必要な項目がありません");
+    }
+    const { action, pull_request, repository } = payload as PullRequestPayload;
+    if (action !== "closed") return { kind: "ignored", reason: "action" };
+    return {
+      kind: "event",
+      event: {
+        kind: "pull_request_closed",
+        repo: repository.full_name,
+        prNumber: pull_request.number,
+        merged: pull_request.merged === true,
+      },
+    };
+  }
+  return { kind: "ignored", reason: "event" };
 }

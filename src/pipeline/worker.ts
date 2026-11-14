@@ -1,9 +1,14 @@
 import { readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { eq } from "drizzle-orm";
-import { cloneForJob } from "../github/git.ts";
-import { claimNextQueuedJob, listInterruptedJobs } from "../queue/jobs.ts";
-import { type Job, jobs } from "../queue/schema.ts";
+import { and, desc, eq } from "drizzle-orm";
+import { cloneBranchForRetry, cloneForJob } from "../github/git.ts";
+import type { Feedback } from "../harness/context.ts";
+import { claimNextJob, listInterruptedJobs } from "../queue/jobs.ts";
+import { type Job, jobEvents, jobs } from "../queue/schema.ts";
+import { concludeCi } from "./ci.ts";
+import { ciFeedback, type FailedCheckLog, MAX_LOGGED_CHECKS } from "./ci-log.ts";
+import { gitDiffSource } from "./diff.ts";
+import type { Plan } from "./plan.ts";
 import { type FailJobExtra, type FailureKind, failJob, type ReportDeps } from "./report.ts";
 import type { PipelineInput, PipelinePhase, PipelineResult } from "./run.ts";
 import { type ShipDeps, shipJob } from "./ship.ts";
@@ -148,6 +153,79 @@ export async function recoverOnStartup(deps: WorkerDeps): Promise<{ failedJobs: 
   return { failedJobs: interrupted.length };
 }
 
+/** CI 失敗後のやり直しに要るもの（009 research R6・R10）。最初の出荷の記録とジョブの列から読む */
+interface RetryContext {
+  baseSha: string;
+  headSha: string;
+  prNumber: number;
+  plan: Plan | undefined;
+  planText: string;
+}
+
+/** 最新の shipped の記録から計画を、ジョブの列から基準・commit・PR を読む。足りなければ理由の文 */
+function loadRetryContext(deps: WorkerDeps, job: Job): RetryContext | string {
+  if (job.base_sha === null || job.head_sha === null || job.pr_number === null) {
+    return "やり直しに要る base_sha・head_sha・pr_number がありません";
+  }
+  const shipped = deps.db
+    .select()
+    .from(jobEvents)
+    .where(and(eq(jobEvents.job_id, job.id), eq(jobEvents.type, "note")))
+    .orderBy(desc(jobEvents.id))
+    .all()
+    .find((event) => event.detail?.includes('"kind":"shipped"'));
+  if (!shipped?.detail) return "最初の出荷の記録（shipped）がありません";
+  const detail = JSON.parse(shipped.detail) as { plan?: Plan | null; plan_text?: string };
+  if (typeof detail.plan_text !== "string") return "出荷の記録に計画がありません";
+  return {
+    baseSha: job.base_sha,
+    headSha: job.head_sha,
+    prNumber: job.pr_number,
+    plan: detail.plan ?? undefined,
+    planText: detail.plan_text,
+  };
+}
+
+/** 失敗したチェックとログ（最大 MAX_LOGGED_CHECKS 件）を取り直し、CI のフィードバックを作る（research R7） */
+async function buildCiFeedback(
+  deps: WorkerDeps,
+  job: Job,
+  ctx: RetryContext,
+  workdir: string,
+): Promise<Feedback[]> {
+  const log = deps.logger.child({ jobId: job.id });
+  let failed: FailedCheckLog[] = [];
+  try {
+    const runs = await deps.github.getCheckRuns({ repo: job.repo, sha: ctx.headSha });
+    const conclusion = concludeCi(runs);
+    const failedNames =
+      conclusion.kind === "failure"
+        ? conclusion.failed
+        : runs
+            .filter((run) => run.status === "completed" && run.conclusion !== null)
+            .filter((run) => !["success", "neutral", "skipped"].includes(run.conclusion ?? ""))
+            .map((run) => ({ name: run.name, conclusion: run.conclusion ?? "unknown" }));
+    for (const [index, check] of failedNames.entries()) {
+      const run = runs.find((r) => r.name === check.name);
+      const text =
+        index < MAX_LOGGED_CHECKS && run
+          ? await deps.github.getCheckRunLog({ repo: job.repo, check: run })
+          : undefined;
+      failed.push({ ...check, log: text });
+    }
+  } catch (error) {
+    log.warn({ error: errorText(error) }, "失敗したチェックを取り直せませんでした");
+    failed = [];
+  }
+  let diff = "";
+  try {
+    diff = (await gitDiffSource.diff(workdir, ctx.baseSha)).diff;
+  } catch (error) {
+    log.warn({ error: errorText(error) }, "前回の diff を取れませんでした");
+  }
+  return ciFeedback({ failed, diff, config: deps.config });
+}
+
 interface Running {
   jobId: number;
   /** 停止の合図 */
@@ -179,13 +257,18 @@ export function createWorker(deps: WorkerDeps): Worker {
       interruptSleep = done;
     });
 
-  async function processJob(job: Job, state: Running): Promise<void> {
+  async function processJob(
+    job: Job,
+    state: Running,
+    claimKind: "new" | "ci_retry",
+  ): Promise<void> {
     const { id } = job;
     const timeoutMs = deps.jobTimeoutMs ?? config.limits.job_timeout_minutes * 60_000;
-    const deadline = (job.started_at ?? now()) + timeoutMs;
+    // やり直しは取り出した時刻から数え直す（009 research R5）
+    const deadline = (claimKind === "ci_retry" ? now() : (job.started_at ?? now())) + timeoutMs;
     const dir = jobDir(deps, id);
     const workdir = join(dir, "repo");
-    const branch = `agent/issue-${job.issue_number}-job-${id}`;
+    const branch = job.branch ?? `agent/issue-${job.issue_number}-job-${id}`;
     const secrets: string[] = [];
     const log = logger.child({ jobId: id });
 
@@ -201,6 +284,17 @@ export function createWorker(deps: WorkerDeps): Worker {
     };
 
     try {
+      // やり直し（009）: 最初の出荷の計画と基準を読む
+      let retry: RetryContext | undefined;
+      if (claimKind === "ci_retry") {
+        const loaded = loadRetryContext(deps, job);
+        if (typeof loaded === "string") {
+          await fail("internal_error", loaded);
+          return;
+        }
+        retry = loaded;
+      }
+
       // 準備: Issue の題と本文、取得、作業ブランチ（research R2・R8）
       const prepare = AbortSignal.any([state.stop.signal, expiry]);
       let issue: { title: string; body: string };
@@ -210,15 +304,28 @@ export function createWorker(deps: WorkerDeps): Worker {
         const access = await github.getCloneAccess({ repo: job.repo });
         secrets.push(access.token);
         prepare.throwIfAborted();
-        await cloneForJob({
-          repo: job.repo,
-          token: access.token,
-          defaultBranch: access.defaultBranch,
-          dir: workdir,
-          branch,
-          signal: prepare,
-          ...(deps.cloneBaseUrl ? { baseUrl: deps.cloneBaseUrl } : {}),
-        });
+        if (retry) {
+          // やり直しは作業ブランチを取り直す。HEAD は前回の push のまま（009 research R6）
+          await cloneBranchForRetry({
+            repo: job.repo,
+            token: access.token,
+            branch,
+            baseSha: retry.baseSha,
+            dir: workdir,
+            signal: prepare,
+            ...(deps.cloneBaseUrl ? { baseUrl: deps.cloneBaseUrl } : {}),
+          });
+        } else {
+          await cloneForJob({
+            repo: job.repo,
+            token: access.token,
+            defaultBranch: access.defaultBranch,
+            dir: workdir,
+            branch,
+            signal: prepare,
+            ...(deps.cloneBaseUrl ? { baseUrl: deps.cloneBaseUrl } : {}),
+          });
+        }
       } catch (error) {
         const kind = interruption();
         await fail(
@@ -268,6 +375,17 @@ export function createWorker(deps: WorkerDeps): Worker {
         return;
       }
 
+      // やり直しでは、CI の失敗と前回の diff を最初の入力に入れ、計画を引き継ぐ（009 research R7・R10）
+      const retryInput: Partial<Omit<PipelineInput, "workspace">> = retry
+        ? {
+            plan: retry.planText,
+            ...(retry.plan ? { planObject: retry.plan } : {}),
+            baseCommit: retry.baseSha,
+            initialFeedback: await buildCiFeedback(deps, job, retry, workdir),
+            preflightChecks: true,
+          }
+        : {};
+
       // 計画から判定まで（005）
       let result: PipelineResult;
       try {
@@ -281,6 +399,7 @@ export function createWorker(deps: WorkerDeps): Worker {
           onPhase: (phase) => {
             if (!state.abandoned) advancePhase(deps, id, phase);
           },
+          ...retryInput,
         });
       } catch (error) {
         await fail("internal_error", firstLine(errorText(error)), { detail: errorText(error) });
@@ -300,6 +419,7 @@ export function createWorker(deps: WorkerDeps): Worker {
           result,
           interruption,
           secrets,
+          ...(retry ? { update: { baseSha: retry.baseSha, prNumber: retry.prNumber } } : {}),
         });
         log.info({ shipped }, "出荷の工程が終わりました");
         return;
@@ -325,16 +445,18 @@ export function createWorker(deps: WorkerDeps): Worker {
 
   async function run(): Promise<void> {
     while (!stopping) {
-      let job: Job | undefined;
+      let claimed: ReturnType<typeof claimNextJob>;
       try {
-        job = claimNextQueuedJob(db, now());
+        // CI 失敗後のやり直しを新しい依頼より先に取り出す（009 research R5）
+        claimed = claimNextJob(db, now());
       } catch (error) {
         logger.error({ err: error }, "キューからジョブを取り出せません");
       }
-      if (!job) {
+      if (!claimed) {
         await sleep(config.worker.poll_interval_seconds * 1000);
         continue;
       }
+      const { job, kind } = claimed;
       const state: Running = {
         jobId: job.id,
         stop: new AbortController(),
@@ -342,10 +464,10 @@ export function createWorker(deps: WorkerDeps): Worker {
         abandoned: false,
       };
       logger.info(
-        { jobId: job.id, repo: job.repo, issue: job.issue_number },
+        { jobId: job.id, repo: job.repo, issue: job.issue_number, kind, ciRetries: job.ci_retries },
         "ジョブを取り出しました",
       );
-      state.done = processJob(job, state).catch((error: unknown) => {
+      state.done = processJob(job, state, kind).catch((error: unknown) => {
         logger.error({ err: error, jobId: job.id }, "ジョブの処理が例外で終わりました");
       });
       running = state;

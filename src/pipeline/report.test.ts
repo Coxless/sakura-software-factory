@@ -9,11 +9,14 @@ import {
   FAILURE_KINDS,
   type FailureKind,
   failJob,
+  listCiEvents,
   maskWith,
   pullRequestTitle,
+  renderCiSection,
   renderFailureReport,
   renderShipNotice,
   renderShipReport,
+  replaceCiSection,
   type ShipReportInput,
 } from "./report.ts";
 import type { PipelineResult } from "./run.ts";
@@ -88,6 +91,10 @@ const DESCRIPTIONS: Record<FailureKind, string> = {
   restarted: "ファクトリーの再起動で中断しました",
   stopped: "ファクトリーの停止で中断しました",
   internal_error: "内部エラーが起きました",
+  ci_failed: "CI 失敗後のやり直しの上限（2 回）まで、CI が通りませんでした",
+  ci_timeout: "CI の結論が 30 分以内に出ませんでした",
+  ci_unfixed: "CI の失敗を受けたやり直しで、変更がありませんでした",
+  pr_closed: "PR がマージされずに閉じられました",
 };
 
 describe("renderFailureReport", () => {
@@ -494,5 +501,179 @@ describe("renderShipNotice・pullRequestTitle（008）", () => {
     const long = { ...plan, summary: "あ".repeat(100) };
     expect(Array.from(pullRequestTitle(long, 7))).toHaveLength(72);
     expect(pullRequestTitle(undefined, 7)).toBe("Issue #7 への対応");
+  });
+});
+
+// ---- 009 ----
+
+describe("renderFailureReport の CI の行（009）", () => {
+  test("PR があれば PR とやり直しの回数、失敗したチェックを 10 件まで並べる", () => {
+    const body = renderFailureReport(CONFIG, {
+      jobId: 3,
+      stage: "ci_waiting",
+      kind: "ci_failed",
+      requests: 4,
+      branch: "b",
+      pr: { number: 12, ciRetries: 2 },
+      failedChecks: Array.from({ length: 12 }, (_, i) => ({
+        name: `job-${i}`,
+        conclusion: "failure",
+      })),
+    });
+    expect(body).toContain("| PR | #12 |");
+    expect(body).toContain("| CI のやり直し | 2 / 上限 2 |");
+    expect(body).toContain("失敗したチェック:\n- `job-0`（failure）");
+    expect(body).toContain("- `job-9`（failure）");
+    expect(body).not.toContain("job-10");
+    expect(body).toContain("- ほか 2 件");
+  });
+});
+
+function noteRow(kind: string, detail: object, id: number) {
+  return {
+    id,
+    job_id: 1,
+    type: "note" as const,
+    from_status: null,
+    to_status: null,
+    detail: JSON.stringify({ kind, ...detail }),
+    created_at: id,
+  };
+}
+
+describe("renderCiSection・replaceCiSection（009）", () => {
+  test("記録がなければ「待っています」", () => {
+    expect(renderCiSection(CONFIG, [])).toBe(
+      "<!-- factory:ci -->\n#### CI\nCI の結果を待っています\n<!-- /factory:ci -->",
+    );
+  });
+
+  test("失敗・やり直し・通過・マージ・諦めの行を順に書く", () => {
+    const section = renderCiSection(CONFIG, [
+      noteRow(
+        "ci_result",
+        {
+          head_sha: "abcdef1234567",
+          conclusion: "failure",
+          attempt: 1,
+          failed: [
+            { name: "test", conclusion: "failure" },
+            { name: "lint", conclusion: "timed_out" },
+          ],
+        },
+        1,
+      ),
+      noteRow("ci_event", { event: "check_suite" }, 2),
+      noteRow(
+        "ci_retry_pushed",
+        { head_sha: "1234567abc", ci_retry: 1, decision: "auto_merge" },
+        3,
+      ),
+      noteRow(
+        "ci_result",
+        { head_sha: "1234567abc", conclusion: "success", attempt: 2, failed: [] },
+        4,
+      ),
+      noteRow("merged", { pr_number: 3 }, 5),
+      noteRow("ci_gave_up", { reason: "ci_timeout", converted_to_draft: true }, 6),
+    ]);
+    expect(section.split("\n")).toEqual([
+      "<!-- factory:ci -->",
+      "#### CI",
+      "| # | commit | 結果 | 内容 |",
+      "|---|---|---|---|",
+      "| 1 | `abcdef1` | ❌ 失敗 | `test`（failure）、`lint`（timed_out） |",
+      "| — | `1234567` | 🔁 やり直しを push | CI 失敗後のやり直し 1 / 2。自動マージ: auto-merge のまま |",
+      "| 2 | `1234567` | ✅ 通過 | |",
+      "| — | | 🎉 マージ | |",
+      "| — | | ⌛ CI 待ちの時間切れ（30 分） | 理由: `ci_timeout`。Draft にしました。人間の確認を待ちます |",
+      "<!-- /factory:ci -->",
+    ]);
+  });
+
+  test("欄があれば置き換え、008 の印があればそこに、なければ末尾に足す", () => {
+    const section = "<!-- factory:ci -->\nNEW\n<!-- /factory:ci -->";
+    expect(replaceCiSection("A\n<!-- factory:ci -->\nOLD\n<!-- /factory:ci -->\nB", section)).toBe(
+      `A\n${section}\nB`,
+    );
+    expect(
+      replaceCiSection(
+        "A\n<!-- 009・010 で CI・マージ・デプロイの結果をここに書き足す -->",
+        section,
+      ),
+    ).toBe(`A\n${section}`);
+    expect(replaceCiSection("A\n\n", section)).toBe(`A\n\n${section}`);
+  });
+
+  test("まとめレポートの末尾は空の CI の欄", () => {
+    const body = renderShipReport(CONFIG, shipInput());
+    expect(body).toContain(
+      "<!-- factory:ci -->\n#### CI\nCI の結果を待っています\n<!-- /factory:ci -->",
+    );
+    expect(body).not.toContain("009・010 で");
+  });
+});
+
+describe("failJob の引き渡し（009）", () => {
+  function withPr(draft: boolean, state: "open" | "closed" = "open", autoMerge = true) {
+    const ctx = setup("ci_waiting");
+    ctx.db.update(jobs).set({ pr_number: 5, ci_retries: 1 }).run();
+    ctx.github.addPullRequest({
+      number: 5,
+      repo: "octo-org/demo",
+      draft,
+      state,
+      autoMerge,
+      body: "まとめ\n<!-- factory:ci -->\n#### CI\nCI の結果を待っています\n<!-- /factory:ci -->",
+    });
+    return ctx;
+  }
+
+  test("報告のあとに PR を Draft に変え、ci_gave_up を記録し、CI の欄を書き直す", async () => {
+    const { db, deps, github, job } = withPr(false);
+    await failJob(deps, job, "ci_failed", "上限", {
+      failedChecks: [{ name: "test", conclusion: "failure" }],
+    });
+    expect(github.comments).toHaveLength(1);
+    expect(github.comments[0]?.body).toContain("| PR | #5 |");
+    expect(github.comments[0]?.body).toContain("| CI のやり直し | 1 / 上限 2 |");
+    expect(github.comments[0]?.body).toContain("- `test`（failure）");
+    expect(github.pullRequests[0]?.draft).toBe(true);
+    expect(github.pullRequests[0]?.body).toContain("🛑 ファクトリーは作業を止めました");
+    expect(github.pullRequests[0]?.body).toContain("Draft にしました");
+    expect(github.pullRequests[0]?.body.startsWith("まとめ\n")).toBe(true);
+    const gaveUp = listCiEvents(db, job.id).map((e) => JSON.parse(e.detail ?? "{}"));
+    expect(gaveUp).toEqual([{ kind: "ci_gave_up", reason: "ci_failed", converted_to_draft: true }]);
+  });
+
+  test("すでに Draft なら変えない。auto-merge でもない通常の PR（unsettled）は Draft に変える", async () => {
+    const draft = withPr(true);
+    await failJob(draft.deps, draft.job, "ci_timeout", "時間切れ");
+    expect(draft.github.count("convertToDraft")).toBe(0);
+    const unsettled = withPr(false, "open", false);
+    await failJob(unsettled.deps, unsettled.job, "judge_rejected", "不合格");
+    expect(unsettled.github.count("convertToDraft")).toBe(1);
+  });
+
+  test("pr_closed では Draft に変えない", async () => {
+    const { deps, github, job } = withPr(false, "closed");
+    await failJob(deps, job, "pr_closed", "閉じた");
+    expect(github.count("getPullRequest")).toBe(0);
+    expect(github.count("convertToDraft")).toBe(0);
+  });
+
+  test("Draft への変更の失敗は handover_failed に残り、ジョブは failed のまま", async () => {
+    const ctx = withPr(false);
+    ctx.github.options.fail = { convertToDraft: new Error("GraphQL error") };
+    await failJob(ctx.deps, ctx.job, "ci_failed", "上限");
+    expect(ctx.db.select().from(jobs).get()?.status).toBe("failed");
+    const errors = ctx.db
+      .select()
+      .from(jobEvents)
+      .all()
+      .filter((e) => e.type === "error")
+      .map((e) => JSON.parse(e.detail ?? "{}").kind);
+    expect(errors).toEqual(["handover_failed"]);
+    expect(ctx.github.pullRequests[0]?.body).toContain("Draft に変えられませんでした");
   });
 });

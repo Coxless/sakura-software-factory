@@ -241,4 +241,29 @@ describe("schema", () => {
     expect(() => run(4, "maybe")).toThrow(/CHECK/);
     close();
   });
+
+  test("jobs の CI の列: ci_status は NULL と pending・passed・failed だけ（009）", () => {
+    const { sqlite, db, close } = migratedMemoryDb();
+    const [inserted] = db
+      .insert(jobs)
+      .values(
+        job({
+          base_sha: "a".repeat(40),
+          head_sha: "b".repeat(40),
+          ci_status: "pending",
+          ci_deadline: 10,
+          ci_event_at: 5,
+        }),
+      )
+      .returning()
+      .all();
+    expect(inserted).toMatchObject({ ci_status: "pending", ci_deadline: 10, ci_event_at: 5 });
+    const setStatus = (value: string | null) =>
+      sqlite.prepare("UPDATE jobs SET ci_status = ? WHERE id = ?").run(value, inserted?.id);
+    expect(() => setStatus("passed")).not.toThrow();
+    expect(() => setStatus("failed")).not.toThrow();
+    expect(() => setStatus(null)).not.toThrow();
+    expect(() => setStatus("success")).toThrow(/CHECK/);
+    close();
+  });
 });

@@ -59,6 +59,17 @@ export interface PipelineInput {
   signal?: AbortSignal;
   /** 工程の境目。例外は握りつぶしてログに残す */
   onPhase?: (phase: PipelinePhase, round: number) => void;
+  /** plan と一緒に渡すと、計画役を呼ばずに結果の plan に入れる（009 research R10） */
+  planObject?: Plan;
+  /** diff の基準。省くと工程の開始時の HEAD（009 research R6: やり直しでは最初の基準の commit） */
+  baseCommit?: string;
+  /** 1回目の実装工程の最初の入力に入れるフィードバック（009: CI の失敗と前回の diff） */
+  initialFeedback?: readonly Feedback[];
+  /**
+   * 1回目の実装工程の前に工程内テストを1回回し、結果を initialFeedback の1番目のあとに足す
+   * （009 research R9: CI の失敗がファクトリー内で再現するかを伝える）
+   */
+  preflightChecks?: boolean;
 }
 
 export interface PipelineDeps {
@@ -125,6 +136,10 @@ export interface PipelineResult {
 const EMPTY_STAT: DiffStat = { files: 0, insertions: 0, deletions: 0 };
 
 class TraceWriteError extends Error {}
+
+/** 009 research R9: CI の失敗が工程内テストで再現しないときの知らせ */
+export const PREFLIGHT_PASSED =
+  "工程内テスト（check_commands）は通りました。CI の失敗はファクトリー内では再現しません。CI のログと、CI とファクトリーの環境の違い（環境変数・OS・実行するコマンド）から原因を探してください。";
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -239,7 +254,7 @@ export async function runPipeline(
         "[pipeline].check_commands が空のため、工程内テストを飛ばします",
       );
     }
-    const base = await diffSource.base(input.workdir);
+    const base = input.baseCommit ?? (await diffSource.base(input.workdir));
     write({
       type: "pipeline_start",
       deadline: input.deadline,
@@ -271,12 +286,42 @@ export async function runPipeline(
       if (planned.kind !== "ok") return oneShotFailure(planned, "計画を得られません");
       plan = planned.value;
       planText = planToText(plan);
+    } else if (input.planObject) {
+      plan = input.planObject;
     }
 
     const implementerIssue =
       instruction === "" ? issueText : `${issueText}\n\n## 依頼の本文\n${instruction}`;
     const checksSecrets = secrets;
-    let feedback: Feedback[] = [];
+    let feedback: Feedback[] = [...(input.initialFeedback ?? [])];
+    if (input.preflightChecks) {
+      if (controller.signal.aborted) return { outcome: abortReason() };
+      const preflight = await runChecks(input.workspace, config, {
+        deadline: input.deadline,
+        signal: controller.signal,
+        now,
+        secrets: checksSecrets,
+      });
+      if (preflight.kind === "unavailable") throw new Error(preflight.error);
+      if (preflight.kind !== "skipped") {
+        write({
+          type: "check_run",
+          round: 0,
+          index: 0,
+          results: preflight.results,
+          passed: preflight.kind === "passed",
+          fedBack: true,
+        });
+        const note: Feedback = {
+          title: "工程内テストの結果",
+          body:
+            preflight.kind === "passed"
+              ? PREFLIGHT_PASSED
+              : `工程内テストでも失敗します。\n${checkFeedback(preflight)}`,
+        };
+        feedback = [...feedback.slice(0, 1), note, ...feedback.slice(1)];
+      }
+    }
     const maxRounds = config.limits.judge_retries + 1;
     for (let round = 1; round <= maxRounds; round++) {
       if (controller.signal.aborted) return { outcome: abortReason() };

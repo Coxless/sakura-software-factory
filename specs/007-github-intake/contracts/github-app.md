@@ -9,11 +9,11 @@
 | Issues | 読み書き | コメント・リアクション |
 | Pull requests | 読み書き | 008 で使う |
 | Contents | 読み書き | 取得（clone）。push は 008 |
-| Checks・Actions | 読み取り | 009 で使う |
+| Checks・Actions | 読み取り | 009 で使う（commit のチェックの結果、Actions のジョブのログ） |
 | Metadata | 読み取り | 必須 |
 | Workflows | **与えない** | — |
 
-イベント: `issue_comment`（007）、`check_suite`（009）、`pull_request`（008）、`push`（010）。Webhook の URL は `https://<FACTORY_DOMAIN>/webhook`、Content type は `application/json`、秘密は `GITHUB_WEBHOOK_SECRET` と同じ値。
+イベント: `issue_comment`（007）、`check_suite`（009。completed で CI 待ちを評価）、`pull_request`（009。closed でマージ・クローズを評価）、`push`（010）。Webhook の URL は `https://<FACTORY_DOMAIN>/webhook`、Content type は `application/json`、秘密は `GITHUB_WEBHOOK_SECRET` と同じ値。
 
 ## 環境変数（`/etc/sakura-factory/factory.env`）
 

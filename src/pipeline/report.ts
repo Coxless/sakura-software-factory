@@ -4,7 +4,7 @@ import type { GitHubPort } from "../github/port.ts";
 import type { Logger } from "../log.ts";
 import type { Db } from "../queue/db.ts";
 import { countLlmCallsForJob } from "../queue/llm-calls.ts";
-import { type Job, jobEvents, jobs } from "../queue/schema.ts";
+import { type Job, type JobEvent, jobEvents, jobs } from "../queue/schema.ts";
 import { maskSecrets, REDACTED } from "../trace/mask.ts";
 import type { DiffStat } from "./diff.ts";
 import type { Plan } from "./plan.ts";
@@ -26,6 +26,11 @@ export const FAILURE_KINDS = [
   "restarted",
   "stopped",
   "internal_error",
+  // 009
+  "ci_failed",
+  "ci_timeout",
+  "ci_unfixed",
+  "pr_closed",
 ] as const;
 export type FailureKind = (typeof FAILURE_KINDS)[number];
 
@@ -57,6 +62,14 @@ function describeKind(config: FactoryConfig, kind: FailureKind): string {
       return "ファクトリーの停止で中断しました";
     case "internal_error":
       return "内部エラーが起きました";
+    case "ci_failed":
+      return `CI 失敗後のやり直しの上限（${config.limits.ci_retries} 回）まで、CI が通りませんでした`;
+    case "ci_timeout":
+      return `CI の結論が ${config.limits.ci_wait_timeout_minutes} 分以内に出ませんでした`;
+    case "ci_unfixed":
+      return "CI の失敗を受けたやり直しで、変更がありませんでした";
+    case "pr_closed":
+      return "PR がマージされずに閉じられました";
   }
 }
 
@@ -77,9 +90,20 @@ export interface FailureReport {
   pushed?: boolean;
   /** 出荷前チェックの結果（008）。止まった条件の中身を報告に書く */
   conditions?: readonly Condition[];
+  /** PR の番号と CI のやり直しの回数（009。PR のあるジョブだけ） */
+  pr?: { number: number; ciRetries: number };
+  /** 失敗したチェック（009。ci_failed） */
+  failedChecks?: readonly FailedCheck[];
+}
+
+/** CI で失敗したチェック（009） */
+export interface FailedCheck {
+  name: string;
+  conclusion: string;
 }
 
 const MAX_FINDINGS = 20;
+const MAX_FAILED_CHECKS = 10;
 
 /** 出荷前チェックで止まったときの説明（contracts/report.md）。秘密情報の値は書かない */
 function renderShipBlock(conditions: readonly Condition[]): string[] {
@@ -102,6 +126,13 @@ function renderShipBlock(conditions: readonly Condition[]): string[] {
   return lines;
 }
 
+function renderFailedChecks(checks: readonly FailedCheck[]): string[] {
+  const lines = checks.slice(0, MAX_FAILED_CHECKS).map((c) => `- \`${c.name}\`（${c.conclusion}）`);
+  if (checks.length > MAX_FAILED_CHECKS)
+    lines.push(`- ほか ${checks.length - MAX_FAILED_CHECKS} 件`);
+  return lines;
+}
+
 function truncate(text: string, max: number): string {
   const chars = Array.from(text);
   return chars.length <= max ? text : `${chars.slice(0, max).join("")}…`;
@@ -120,6 +151,10 @@ export function renderFailureReport(config: FactoryConfig, report: FailureReport
         : "なし",
     ],
   ];
+  if (report.pr) {
+    rows.push(["PR", `#${report.pr.number}`]);
+    rows.push(["CI のやり直し", `${report.pr.ciRetries} / 上限 ${config.limits.ci_retries}`]);
+  }
   if (report.result) {
     const { retries, diffStat } = report.result;
     rows.push([
@@ -139,6 +174,9 @@ export function renderFailureReport(config: FactoryConfig, report: FailureReport
       ? renderShipBlock(report.conditions ?? [])
       : [];
   if (block.length > 0) lines.push("", ...block);
+  if (report.failedChecks && report.failedChecks.length > 0) {
+    lines.push("", "失敗したチェック:", ...renderFailedChecks(report.failedChecks));
+  }
   const detail = report.detail?.trim();
   if (detail) lines.push("", truncate(detail, MAX_DETAIL_CHARS));
   return lines.join("\n");
@@ -186,6 +224,8 @@ export interface FailJobExtra {
   pushed?: boolean;
   /** 出荷前チェックの結果（008） */
   conditions?: readonly Condition[];
+  /** 失敗したチェック（009） */
+  failedChecks?: readonly FailedCheck[];
 }
 
 function errorText(error: unknown): string {
@@ -197,6 +237,7 @@ function errorText(error: unknown): string {
  * - 状態は DB の今の値から failed に移す（渡した job が古くてもよい）。終わりの状態なら何もしない
  * - 投稿の前に report_posted の記録を見て、二重に投稿しない
  * - 投稿に失敗したら job_events に report_failed を残す（ジョブは failed のまま）
+ * - PR のあるジョブ（pr_closed 以外）は、報告のあとに PR を Draft に変えて人間に渡す（009 research R13）
  */
 export async function failJob(
   deps: ReportDeps,
@@ -205,7 +246,7 @@ export async function failJob(
   message: string,
   extra: FailJobExtra = {},
 ): Promise<void> {
-  const { db, config, logger, github } = deps;
+  const { db, logger } = deps;
   const now = deps.now ?? Date.now;
   const secrets = extra.secrets ?? [];
   const current = db.select().from(jobs).where(eq(jobs.id, job.id)).get();
@@ -237,7 +278,22 @@ export async function failJob(
     .where(and(eq(jobEvents.job_id, failed.id), eq(jobEvents.type, "note")))
     .all()
     .some((event) => event.detail?.includes('"kind":"report_posted"'));
-  if (posted) return;
+  if (!posted) await postFailureReport(deps, current, failed, kind, extra);
+  if (failed.pr_number !== null && kind !== "pr_closed") {
+    await handOverPullRequest(deps, failed, kind, secrets);
+  }
+}
+
+async function postFailureReport(
+  deps: ReportDeps,
+  current: Job,
+  failed: Job,
+  kind: FailureKind,
+  extra: FailJobExtra,
+): Promise<void> {
+  const { db, config, logger, github } = deps;
+  const now = deps.now ?? Date.now;
+  const secrets = extra.secrets ?? [];
 
   const body = maskWith(
     renderFailureReport(config, {
@@ -250,6 +306,10 @@ export async function failJob(
       ...(extra.detail === undefined ? {} : { detail: extra.detail }),
       ...(extra.pushed ? { pushed: true } : {}),
       ...(extra.conditions ? { conditions: extra.conditions } : {}),
+      ...(failed.pr_number !== null
+        ? { pr: { number: failed.pr_number, ciRetries: failed.ci_retries } }
+        : {}),
+      ...(extra.failedChecks ? { failedChecks: extra.failedChecks } : {}),
     }),
     secrets,
   );
@@ -345,6 +405,8 @@ export interface ShipReportInput {
   unmet: readonly ConditionName[];
   decision: "auto_merge" | "draft" | "unsettled";
   notes: readonly string[];
+  /** CI の欄（009）。省くと「CI の結果を待っています」 */
+  ciSection?: string;
 }
 
 function decisionText(config: FactoryConfig, input: ShipReportInput): string {
@@ -444,7 +506,7 @@ export function renderShipReport(config: FactoryConfig, input: ShipReportInput):
       "",
       "</details>",
       "",
-      "<!-- 009・010 で CI・マージ・デプロイの結果をここに書き足す -->",
+      input.ciSection ?? renderCiSection(config, []),
     );
     return lines.join("\n");
   };
@@ -482,4 +544,167 @@ export function renderShipNotice(input: {
     `- 自動マージ: ${decision}`,
     `- 消費したリクエスト: ${input.requests}`,
   ].join("\n");
+}
+
+// ---- 009: PR の本文の CI の欄（contracts/report.md 1章）と、諦めたときの引き渡し（research R13） ----
+
+export const CI_SECTION_START = "<!-- factory:ci -->";
+export const CI_SECTION_END = "<!-- /factory:ci -->";
+const LEGACY_CI_PLACEHOLDER = "<!-- 009・010 で CI・マージ・デプロイの結果をここに書き足す -->";
+/** CI の欄に出す記録の種類 */
+export const CI_EVENT_KINDS = ["ci_result", "ci_retry_pushed", "ci_gave_up", "merged"] as const;
+
+function shortSha(sha: unknown): string {
+  return typeof sha === "string" && sha !== "" ? `\`${sha.slice(0, 7)}\`` : "";
+}
+
+function decisionLabel(decision: unknown): string {
+  return decision === "auto_merge"
+    ? "auto-merge のまま"
+    : decision === "draft"
+      ? "Draft"
+      : "確定できませんでした";
+}
+
+/** job_events の CI の記録から欄を作る。記録は古い順に渡す。対象の kind 以外は無視する */
+export function renderCiSection(config: FactoryConfig, events: readonly JobEvent[]): string {
+  const rows: string[] = [];
+  for (const event of events) {
+    if (event.type !== "note" || event.detail === null) continue;
+    let detail: Record<string, unknown>;
+    try {
+      detail = JSON.parse(event.detail) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    switch (detail.kind) {
+      case "ci_result": {
+        const failed = Array.isArray(detail.failed) ? (detail.failed as FailedCheck[]) : [];
+        const names = failed
+          .slice(0, MAX_FAILED_CHECKS)
+          .map((c) => `\`${c.name}\`（${c.conclusion}）`)
+          .join("、");
+        const more =
+          failed.length > MAX_FAILED_CHECKS ? ` ほか ${failed.length - MAX_FAILED_CHECKS} 件` : "";
+        rows.push(
+          detail.conclusion === "success"
+            ? `| ${String(detail.attempt ?? "")} | ${shortSha(detail.head_sha)} | ✅ 通過 | |`
+            : `| ${String(detail.attempt ?? "")} | ${shortSha(detail.head_sha)} | ❌ 失敗 | ${names}${more} |`,
+        );
+        break;
+      }
+      case "ci_retry_pushed":
+        rows.push(
+          `| — | ${shortSha(detail.head_sha)} | 🔁 やり直しを push | CI 失敗後のやり直し ${String(detail.ci_retry)} / ${config.limits.ci_retries}。自動マージ: ${decisionLabel(detail.decision)} |`,
+        );
+        break;
+      case "ci_gave_up": {
+        const reason = typeof detail.reason === "string" ? detail.reason : "";
+        const label =
+          reason === "ci_timeout"
+            ? `⌛ CI 待ちの時間切れ（${config.limits.ci_wait_timeout_minutes} 分）`
+            : "🛑 ファクトリーは作業を止めました";
+        rows.push(
+          `| — | | ${label} | 理由: \`${reason}\`。${detail.converted_to_draft ? "Draft にしました。人間の確認を待ちます" : "Draft に変えられませんでした"} |`,
+        );
+        break;
+      }
+      case "merged":
+        rows.push("| — | | 🎉 マージ | |");
+        break;
+      default:
+        break;
+    }
+  }
+  const body =
+    rows.length === 0
+      ? ["CI の結果を待っています"]
+      : ["| # | commit | 結果 | 内容 |", "|---|---|---|---|", ...rows];
+  return [CI_SECTION_START, "#### CI", ...body, CI_SECTION_END].join("\n");
+}
+
+/** 本文の CI の欄を置き換える。欄がなければ 008 の印を置き換え、それもなければ末尾に足す */
+export function replaceCiSection(body: string, section: string): string {
+  const start = body.indexOf(CI_SECTION_START);
+  const end = body.indexOf(CI_SECTION_END);
+  if (start !== -1 && end > start) {
+    return `${body.slice(0, start)}${section}${body.slice(end + CI_SECTION_END.length)}`;
+  }
+  if (body.includes(LEGACY_CI_PLACEHOLDER)) return body.replace(LEGACY_CI_PLACEHOLDER, section);
+  return body.trim() === "" ? section : `${body.replace(/\s+$/, "")}\n\n${section}`;
+}
+
+/** ジョブの CI の記録（古い順） */
+export function listCiEvents(db: Db, jobId: number): JobEvent[] {
+  return db
+    .select()
+    .from(jobEvents)
+    .where(and(eq(jobEvents.job_id, jobId), eq(jobEvents.type, "note")))
+    .orderBy(jobEvents.id)
+    .all()
+    .filter((event) => CI_EVENT_KINDS.some((kind) => event.detail?.includes(`"kind":"${kind}"`)));
+}
+
+function noteEvent(deps: ReportDeps, jobId: number, type: "note" | "error", detail: object): void {
+  const now = deps.now ?? Date.now;
+  deps.db
+    .insert(jobEvents)
+    .values({ job_id: jobId, type, detail: JSON.stringify(detail), created_at: now() })
+    .run();
+}
+
+/**
+ * PR の本文の CI の欄を記録から作り直して書く（research R12）。PR がない・失敗しても例外を投げず、
+ * 失敗は ci_body_failed に残す
+ */
+export async function refreshCiSection(
+  deps: ReportDeps,
+  job: Pick<Job, "id" | "repo" | "pr_number">,
+  secrets: readonly string[] = [],
+): Promise<void> {
+  if (job.pr_number === null) return;
+  try {
+    const pr = await deps.github.getPullRequest({ repo: job.repo, number: job.pr_number });
+    const section = renderCiSection(deps.config, listCiEvents(deps.db, job.id));
+    const body = maskWith(replaceCiSection(pr.body, section), secrets);
+    if (body === pr.body) return;
+    await deps.github.updatePullRequestBody({ repo: job.repo, number: job.pr_number, body });
+  } catch (error) {
+    const message = maskWith(errorText(error), secrets);
+    noteEvent(deps, job.id, "error", { kind: "ci_body_failed", message });
+    deps.logger.warn({ jobId: job.id, error: message }, "PR の本文の CI の欄を書けませんでした");
+  }
+}
+
+/**
+ * 諦めたジョブの PR を Draft に変えて人間に渡し、CI の欄に理由を書き足す（research R13）。例外を投げない。
+ * 閉じた PR・すでに Draft の PR は変えない
+ */
+async function handOverPullRequest(
+  deps: ReportDeps,
+  job: Job,
+  kind: FailureKind,
+  secrets: readonly string[],
+): Promise<void> {
+  if (job.pr_number === null) return;
+  let converted = false;
+  try {
+    const pr = await deps.github.getPullRequest({ repo: job.repo, number: job.pr_number });
+    if (pr.draft) {
+      converted = true;
+    } else if (pr.state === "open") {
+      await deps.github.convertToDraft({ repo: job.repo, nodeId: pr.nodeId });
+      converted = true;
+    }
+  } catch (error) {
+    const message = maskWith(errorText(error), secrets);
+    noteEvent(deps, job.id, "error", { kind: "handover_failed", message });
+    deps.logger.error({ jobId: job.id, error: message }, "PR を Draft に変えられませんでした");
+  }
+  noteEvent(deps, job.id, "note", {
+    kind: "ci_gave_up",
+    reason: kind,
+    converted_to_draft: converted,
+  });
+  await refreshCiSection(deps, job, secrets);
 }

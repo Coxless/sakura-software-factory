@@ -2,20 +2,29 @@
  * 出荷の工程（008 US1、research R1〜R9）。判定に合格したジョブを、
  * commit → 出荷前チェック → push → PR → auto-merge か Draft → ci_waiting と進め、Issue に知らせる。
  * LLM は呼ばない。commit・push はホストで行い、作業場（コンテナ）は使わない。
+ *
+ * 009（research R11）: CI 失敗後のやり直し（update）では PR を作らず、前回の push からの変更を1つの commit にして
+ * 早送りで push する。自動マージの条件は PR の変更全体（base_sha から）で評価し、振り分けは格下げだけにする。
  */
 
 import { eq } from "drizzle-orm";
 import { execa } from "execa";
 import { changedFiles, commitForJob, pushBranch, ShipGitError } from "../github/git.ts";
-import { DraftUnavailableError, type PullRequestRef } from "../github/port.ts";
+import {
+  DraftUnavailableError,
+  type PullRequestRef,
+  type PullRequestState,
+} from "../github/port.ts";
 import { countLlmCallsForJob } from "../queue/llm-calls.ts";
 import { type Job, jobEvents, jobs } from "../queue/schema.ts";
 import {
   type FailureKind,
   failJob,
+  listCiEvents,
   maskWith,
   pullRequestTitle,
   type ReportDeps,
+  renderCiSection,
   renderShipNotice,
   renderShipReport,
 } from "./report.ts";
@@ -28,6 +37,7 @@ import {
   type ShipCheckResult,
   scanSecrets,
 } from "./ship-checks.ts";
+import type { TransitionFields } from "./state.ts";
 import { transitionPath } from "./state.ts";
 
 export interface ShipDeps extends ReportDeps {
@@ -51,6 +61,11 @@ export interface ShipInput {
   interruption: () => "stopped" | "timeout" | undefined;
   /** 伏せる値（Worker と共有。push のトークンを足す） */
   secrets: string[];
+  /**
+   * CI 失敗後のやり直しの出荷（009 research R11）。ありなら PR を作らず、作業ブランチに追加の commit を早送りで
+   * push する。baseSha は最初の出荷の基準（自動マージの条件を PR の変更全体で評価する）
+   */
+  update?: { baseSha: string; prNumber: number };
 }
 
 export type MergeDecisionKind = "auto_merge" | "draft" | "unsettled";
@@ -67,6 +82,8 @@ export type ShipOutcome =
         | "stopped"
         | "timeout"
         | "internal_error"
+        | "ci_unfixed"
+        | "pr_closed"
       >;
     };
 
@@ -131,7 +148,7 @@ function note(deps: ShipDeps, jobId: number, type: "note" | "error", detail: obj
  */
 export async function shipJob(deps: ShipDeps, input: ShipInput): Promise<ShipOutcome> {
   const { github, config, logger } = deps;
-  const { job, workdir, branch, result, secrets } = input;
+  const { job, workdir, branch, result, secrets, update } = input;
   const log = logger.child({ jobId: job.id });
   let pushed = false;
 
@@ -167,14 +184,21 @@ export async function shipJob(deps: ShipDeps, input: ShipInput): Promise<ShipOut
       return await fail("ship_failed", maskWith(errorText(error), secrets));
     }
     if (!commit) {
-      return await fail(
-        "internal_error",
-        "判定に合格しましたが、作業ディレクトリに変更がありません",
-      );
+      return update
+        ? await fail(
+            "ci_unfixed",
+            "CI の失敗を受けたやり直しで、前回の push からの変更がありません",
+          )
+        : await fail("internal_error", "判定に合格しましたが、作業ディレクトリに変更がありません");
     }
 
-    // 出荷前チェック（research R3・R4）
-    const changes = await changedFiles({ dir: workdir, ...commit });
+    // 出荷前チェック（research R3・R4）。やり直しでは diff の大きさ・禁止パスを PR の変更全体で見る（009 R11）。
+    // 秘密情報のスキャンは新しい commit だけ（前回までの commit はスキャン済み）
+    const changes = await changedFiles({
+      dir: workdir,
+      base: update ? update.baseSha : commit.base,
+      head: commit.head,
+    });
     const scan = await scanSecrets({
       dir: workdir,
       ...commit,
@@ -235,6 +259,25 @@ export async function shipJob(deps: ShipDeps, input: ShipInput): Promise<ShipOut
       );
     }
 
+    // やり直しでは、push の前に PR がまだ開いていることを確かめる（009 FR-019）
+    let existing: PullRequestState | undefined;
+    if (update) {
+      try {
+        existing = await github.getPullRequest({ repo: job.repo, number: update.prNumber });
+      } catch (error) {
+        return await fail(
+          "ship_failed",
+          maskWith(`PR #${update.prNumber} の状態を確かめられません: ${errorText(error)}`, secrets),
+        );
+      }
+      if (existing.state !== "open" || existing.merged) {
+        return await fail(
+          "pr_closed",
+          `PR #${update.prNumber} が${existing.merged ? "マージ済み" : "閉じられている"}ため push しません`,
+        );
+      }
+    }
+
     // push（research R5）。トークンは取り直す（インストールトークンは1時間で切れる）
     let defaultBranch: string;
     try {
@@ -270,6 +313,34 @@ export async function shipJob(deps: ShipDeps, input: ShipInput): Promise<ShipOut
       notes: prNotes,
     });
     const title = pullRequestTitle(result.plan, job.issue_number);
+    const now = deps.now ?? Date.now;
+    const ciFields = {
+      head_sha: commit.head,
+      ci_status: "pending" as const,
+      ci_deadline: now() + config.limits.ci_wait_timeout_minutes * 60_000,
+      ci_event_at: null,
+    };
+    const shippedNote = (prNumber: number, prUrl: string, decision: MergeDecisionKind) => ({
+      kind: "shipped",
+      pr_number: prNumber,
+      pr_url: prUrl,
+      decision,
+      unmet: checks.unmet,
+      notes,
+      head_sha: commit.head,
+      plan: result.plan ?? null,
+      plan_text: result.planText,
+    });
+    if (update && existing) {
+      return await reship(deps, input, {
+        existing,
+        wantAutoMerge,
+        notes,
+        ciFields,
+        shippedNote,
+        reportInput,
+      });
+    }
     const initialDecision: MergeDecisionKind = wantAutoMerge ? "auto_merge" : "draft";
     let pr: PullRequestRef;
     try {
@@ -329,8 +400,7 @@ export async function shipJob(deps: ShipDeps, input: ShipInput): Promise<ShipOut
       }
     }
 
-    // 状態（research R8）。PR を作ったあとは failed にしない
-    const now = deps.now ?? Date.now;
+    // 状態（research R8）。PR を作ったあとは failed にしない。CI の待ちの列も同じトランザクションで書く（009）
     try {
       transitionPath(
         deps.db,
@@ -338,19 +408,12 @@ export async function shipJob(deps: ShipDeps, input: ShipInput): Promise<ShipOut
         ["judging", "pr_opened", "ci_waiting"],
         now(),
         { pr_number: pr.number },
-        { pr_number: pr.number },
+        { pr_number: pr.number, base_sha: commit.base, ...ciFields },
       );
     } catch (error) {
       log.error({ err: error, pr: pr.number }, "PR を作ったあとの状態の遷移に失敗しました");
     }
-    note(deps, job.id, "note", {
-      kind: "shipped",
-      pr_number: pr.number,
-      pr_url: pr.url,
-      decision,
-      unmet: checks.unmet,
-      notes,
-    });
+    note(deps, job.id, "note", shippedNote(pr.number, pr.url, decision));
     log.info({ pr: pr.number, decision, unmet: checks.unmet, notes }, "PR を作りました");
 
     // Issue に知らせる（1回）
@@ -381,4 +444,89 @@ export async function shipJob(deps: ShipDeps, input: ShipInput): Promise<ShipOut
     log.error({ err: error }, "出荷の工程で想定外の例外");
     return await fail("internal_error", maskWith(errorText(error), secrets).split("\n")[0] ?? "");
   }
+}
+
+interface ReshipContext {
+  existing: PullRequestState;
+  wantAutoMerge: boolean;
+  notes: string[];
+  ciFields: TransitionFields;
+  shippedNote: (prNumber: number, prUrl: string, decision: MergeDecisionKind) => object;
+  reportInput: (
+    decision: MergeDecisionKind,
+    notes: readonly string[],
+  ) => Parameters<typeof renderShipReport>[1];
+}
+
+/**
+ * やり直しの push のあと（009 research R11）。振り分けは格下げだけ: auto-merge の PR が条件を外れたら Draft に変え、
+ * Draft はそのまま。状態を ci_waiting に戻し、PR の本文を今回の結果で書き直す（CI の欄はそれまでの記録から）。
+ * Issue にはコメントしない
+ */
+async function reship(deps: ShipDeps, input: ShipInput, ctx: ReshipContext): Promise<ShipOutcome> {
+  const { github, config, logger } = deps;
+  const { job, secrets } = input;
+  const { existing, notes } = ctx;
+  const log = logger.child({ jobId: job.id });
+  const now = deps.now ?? Date.now;
+
+  let decision: MergeDecisionKind;
+  if (existing.draft) {
+    decision = "draft";
+  } else if (!existing.autoMerge) {
+    // 008 で Draft を作れなかった・振り分けを確定できなかった PR。そのままにする
+    decision = "unsettled";
+  } else if (ctx.wantAutoMerge) {
+    decision = "auto_merge";
+  } else {
+    try {
+      await github.convertToDraft({ repo: job.repo, nodeId: existing.nodeId });
+      decision = "draft";
+    } catch (error) {
+      notes.push(`convert_to_draft_failed: ${oneLine(maskWith(errorText(error), secrets))}`);
+      decision = "unsettled";
+    }
+  }
+
+  try {
+    transitionPath(
+      deps.db,
+      job.id,
+      ["judging", "pr_opened", "ci_waiting"],
+      now(),
+      { pr_number: existing.number, ci_retry: job.ci_retries },
+      ctx.ciFields,
+    );
+  } catch (error) {
+    log.error(
+      { err: error, pr: existing.number },
+      "やり直しの push のあとの状態の遷移に失敗しました",
+    );
+  }
+  note(deps, job.id, "note", ctx.shippedNote(existing.number, existing.url, decision));
+  note(deps, job.id, "note", {
+    kind: "ci_retry_pushed",
+    head_sha: ctx.ciFields.head_sha,
+    ci_retry: job.ci_retries,
+    decision,
+    unmet: ctx.reportInput(decision, notes).unmet,
+  });
+
+  try {
+    const body = renderShipReport(config, {
+      ...ctx.reportInput(decision, notes),
+      ciSection: renderCiSection(config, listCiEvents(deps.db, job.id)),
+    });
+    await github.updatePullRequestBody({
+      repo: job.repo,
+      number: existing.number,
+      body: maskWith(body, secrets),
+    });
+  } catch (error) {
+    const text = maskWith(errorText(error), secrets);
+    note(deps, job.id, "error", { kind: "ci_body_failed", message: text });
+    log.warn({ error: text }, "やり直しの PR の本文を書き直せませんでした");
+  }
+  log.info({ pr: existing.number, decision, ciRetry: job.ci_retries }, "やり直しを push しました");
+  return { kind: "shipped", prNumber: existing.number, prUrl: existing.url, decision };
 }

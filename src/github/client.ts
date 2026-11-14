@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { App } from "octokit";
 import {
   type BotIdentity,
+  type CheckRunInfo,
   DraftUnavailableError,
   type GitHubPort,
   REPO_PERMISSIONS,
@@ -16,6 +17,7 @@ import {
  *   App が入っていなければ例外（受付では「権限を確かめられない」= 500）
  * - インストールトークン（1時間で切れる）の発行と更新は octokit に任せ、保存しない
  * - auto-merge の有効化と Draft への変更は REST にないので GraphQL（008 research R6）
+ * - CI のチェックとログは Checks・Actions の REST（009 research R1・R7）
  */
 export function createGitHubClient(options: { appId: string; privateKey: string }): GitHubPort {
   const app = new App({ appId: options.appId, privateKey: options.privateKey });
@@ -148,6 +150,82 @@ export function createGitHubClient(options: { appId: string; privateKey: string 
         pull_number: number,
         body,
       });
+    },
+
+    async getPullRequest({ repo, number }) {
+      const octokit = await installationOctokit(repo);
+      const { data } = await octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+        ...split(repo),
+        pull_number: number,
+      });
+      return {
+        number: data.number,
+        url: data.html_url,
+        nodeId: data.node_id,
+        state: data.state === "closed" ? "closed" : "open",
+        merged: data.merged === true || data.merged_at !== null,
+        draft: data.draft === true,
+        autoMerge: data.auto_merge !== null && data.auto_merge !== undefined,
+        headSha: data.head.sha,
+        body: data.body ?? "",
+      };
+    },
+
+    async getCheckRuns({ repo, sha }) {
+      const octokit = await installationOctokit(repo);
+      const runs = await octokit.paginate("GET /repos/{owner}/{repo}/commits/{ref}/check-runs", {
+        ...split(repo),
+        ref: sha,
+        filter: "latest",
+        per_page: 100,
+      });
+      return runs.map(
+        (run): CheckRunInfo => ({
+          id: run.id,
+          name: run.name,
+          status: run.status,
+          conclusion: run.conclusion ?? null,
+          app: run.app?.slug ?? null,
+        }),
+      );
+    },
+
+    async getCheckRunLog({ repo, check }) {
+      const octokit = await installationOctokit(repo).catch(() => undefined);
+      if (!octokit) return undefined;
+      if (check.app === "github-actions") {
+        try {
+          // チェックの ID は Actions のジョブの ID と同じ。302 でプレーンテキストに飛ぶ
+          const { data } = await octokit.request(
+            "GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs",
+            { ...split(repo), job_id: check.id },
+          );
+          const text =
+            typeof data === "string"
+              ? data
+              : data instanceof ArrayBuffer
+                ? new TextDecoder().decode(data)
+                : String(data ?? "");
+          if (text.trim() !== "") return text;
+        } catch {
+          // ログが消えた・権限がない → output の文を使う
+        }
+      }
+      try {
+        const { data } = await octokit.request(
+          "GET /repos/{owner}/{repo}/check-runs/{check_run_id}",
+          {
+            ...split(repo),
+            check_run_id: check.id,
+          },
+        );
+        const text = [data.output?.title, data.output?.summary, data.output?.text]
+          .filter((part): part is string => typeof part === "string" && part.trim() !== "")
+          .join("\n\n");
+        return text === "" ? undefined : text;
+      } catch {
+        return undefined;
+      }
     },
 
     async convertToDraft({ repo, nodeId }) {

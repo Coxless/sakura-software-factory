@@ -4,7 +4,16 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { parseConfig } from "../config.ts";
 import { openDatabase, runMigrations } from "./db.ts";
-import { claimNextQueuedJob, enqueueJob, listInterruptedJobs, markIntakeStopped } from "./jobs.ts";
+import {
+  claimNextJob,
+  claimNextQueuedJob,
+  enqueueJob,
+  listCiJobsToCheck,
+  listInterruptedJobs,
+  markIntakeStopped,
+  markPendingCiJobs,
+  noteCiEvent,
+} from "./jobs.ts";
 import { budget, JOB_STATUSES, jobEvents, jobs, type NewJob } from "./schema.ts";
 import { migratedMemoryDb } from "./testing.ts";
 
@@ -159,6 +168,132 @@ describe("listInterruptedJobs", () => {
       .run();
     const statuses = listInterruptedJobs(db).map((j) => j.status);
     expect(statuses.sort()).toEqual(["implementing", "judging", "planning", "testing"]);
+    close();
+  });
+});
+
+// ---- 009: CI の待ち ----
+
+const waiting = (commentId: number, overrides: Partial<NewJob> = {}): NewJob => ({
+  ...job(commentId, commentId),
+  status: "ci_waiting",
+  branch: `agent/issue-1-job-${commentId}`,
+  pr_number: commentId,
+  head_sha: `sha-${commentId}`,
+  base_sha: "base",
+  ci_status: "pending",
+  ci_deadline: 10_000,
+  ...overrides,
+});
+
+describe("claimNextJob（009）", () => {
+  test("やり直しを待つ ci_waiting を queued より先に implementing にする", () => {
+    const { db, close } = migratedMemoryDb();
+    db.insert(jobs)
+      .values([
+        job(1, 1),
+        waiting(2, { ci_status: "failed", updated_at: 50 }),
+        waiting(3, { ci_status: "pending" }),
+      ])
+      .run();
+    const first = claimNextJob(db, 1000);
+    expect(first?.kind).toBe("ci_retry");
+    expect(first?.job).toMatchObject({
+      trigger_comment_id: 2,
+      status: "implementing",
+      ci_retries: 1,
+      ci_status: null,
+      ci_deadline: null,
+      updated_at: 1000,
+    });
+    const event = db.select().from(jobEvents).all().at(-1);
+    expect(event).toMatchObject({ from_status: "ci_waiting", to_status: "implementing" });
+    expect(JSON.parse(event?.detail ?? "{}")).toEqual({ reason: "ci_retry", ci_retry: 1 });
+
+    const second = claimNextJob(db, 1001);
+    expect(second?.kind).toBe("new");
+    expect(second?.job).toMatchObject({ trigger_comment_id: 1, status: "planning" });
+    expect(claimNextJob(db, 1002)).toBeUndefined();
+    close();
+  });
+
+  test("やり直しを待つジョブが複数あれば古い順", () => {
+    const { db, close } = migratedMemoryDb();
+    db.insert(jobs)
+      .values([
+        waiting(1, { ci_status: "failed", updated_at: 90 }),
+        waiting(2, { ci_status: "failed", updated_at: 20 }),
+      ])
+      .run();
+    expect(claimNextJob(db, 1000)?.job.trigger_comment_id).toBe(2);
+    close();
+  });
+});
+
+describe("noteCiEvent（009）", () => {
+  test("check_suite は branch と head_sha が一致する ci_waiting にだけ印を付ける", () => {
+    const { db, close } = migratedMemoryDb();
+    db.insert(jobs)
+      .values([waiting(1), waiting(2, { status: "implementing", ci_status: null })])
+      .run();
+    const base = { kind: "check_suite", repo: "Coxless/demo" } as const;
+    expect(
+      noteCiEvent(db, { ...base, headBranch: "agent/issue-1-job-1", headSha: "other" }, 5, "d1"),
+    ).toBeUndefined();
+    expect(
+      noteCiEvent(db, { ...base, headBranch: "agent/issue-1-job-2", headSha: "sha-2" }, 5, "d2"),
+    ).toBeUndefined();
+    expect(
+      noteCiEvent(db, { ...base, headBranch: null, headSha: "sha-1" }, 5, "d3"),
+    ).toBeUndefined();
+    const noted = noteCiEvent(
+      db,
+      { ...base, headBranch: "agent/issue-1-job-1", headSha: "sha-1" },
+      7,
+      "d4",
+    );
+    expect(noted).toMatchObject({ trigger_comment_id: 1, ci_event_at: 7 });
+    const events = db.select().from(jobEvents).all();
+    expect(events).toHaveLength(1);
+    expect(JSON.parse(events[0]?.detail ?? "{}")).toEqual({
+      kind: "ci_event",
+      event: "check_suite",
+      delivery: "d4",
+      head_sha: "sha-1",
+    });
+    close();
+  });
+
+  test("pull_request_closed は pr_number が一致する ci_waiting に印を付ける", () => {
+    const { db, close } = migratedMemoryDb();
+    db.insert(jobs)
+      .values([waiting(3)])
+      .run();
+    const ev = { kind: "pull_request_closed", repo: "Coxless/demo", merged: true } as const;
+    expect(noteCiEvent(db, { ...ev, prNumber: 4 }, 5, "d")).toBeUndefined();
+    expect(noteCiEvent(db, { ...ev, repo: "x/y", prNumber: 3 }, 5, "d")).toBeUndefined();
+    expect(noteCiEvent(db, { ...ev, prNumber: 3 }, 9, "d")?.ci_event_at).toBe(9);
+    close();
+  });
+});
+
+describe("listCiJobsToCheck・markPendingCiJobs（009）", () => {
+  test("印のあるもの、pending で期限切れのものを古い順に返す", () => {
+    const { db, close } = migratedMemoryDb();
+    db.insert(jobs)
+      .values([
+        waiting(1, { ci_deadline: 100 }),
+        waiting(2, { ci_deadline: 5000 }),
+        waiting(3, { ci_deadline: 100, ci_status: "passed" }),
+        waiting(4, { ci_deadline: 5000, ci_status: "passed", ci_event_at: 3 }),
+        waiting(5, { ci_deadline: 100, ci_status: "failed" }),
+        waiting(6, { status: "implementing", ci_status: null, ci_event_at: 3 }),
+      ])
+      .run();
+    expect(listCiJobsToCheck(db, 1000).map((j) => j.trigger_comment_id)).toEqual([1, 4]);
+
+    expect(markPendingCiJobs(db, 2000)).toBe(2);
+    expect(listCiJobsToCheck(db, 1000).map((j) => j.trigger_comment_id)).toEqual([1, 2, 4]);
     close();
   });
 });

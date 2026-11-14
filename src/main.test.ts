@@ -158,6 +158,47 @@ describe("startFactory: 受付と Worker（007）", () => {
     expect(factory.database.open).toBe(false);
   });
 
+  test("CI の知らせで見回りが CI 通過を記録し、マージの知らせで merged に進む（009）", async () => {
+    const { logger } = capture();
+    const dir = tempDir();
+    const github = new FakeGitHub({ permissions: { coxless: "admin" } });
+    const svc = await services(github);
+    const factory = await startFactory(configWith(dir), logger, () => svc);
+    const url = `http://127.0.0.1:${factory.address.port}/webhook`;
+    await fetch(url, signedRequest(SECRET, "issue_comment", payload));
+    const row = () =>
+      factory.database.prepare("SELECT status, ci_status, branch, head_sha FROM jobs").get() as {
+        status: string;
+        ci_status: string | null;
+        branch: string;
+        head_sha: string;
+      };
+    await vi.waitFor(() => expect(row().status).toBe("ci_waiting"), { timeout: 10_000 });
+    const { branch, head_sha } = row();
+    github.setCheckRuns(head_sha, [
+      { id: 1, name: "test", status: "completed", conclusion: "success", app: "github-actions" },
+    ]);
+    const suite = {
+      action: "completed",
+      check_suite: { head_branch: branch, head_sha },
+      repository: { full_name: "octo-org/demo" },
+    };
+    const res = await fetch(url, signedRequest(SECRET, "check_suite", suite, "d-ci"));
+    expect(await res.json()).toMatchObject({ result: "ci_noted" });
+    await vi.waitFor(() => expect(row().ci_status).toBe("passed"), { timeout: 5000 });
+
+    github.mergePullRequest(1);
+    const closed = {
+      action: "closed",
+      pull_request: { number: 1, merged: true },
+      repository: { full_name: "octo-org/demo" },
+    };
+    await fetch(url, signedRequest(SECRET, "pull_request", closed, "d-pr"));
+    await vi.waitFor(() => expect(row().status).toBe("merged"), { timeout: 5000 });
+    expect(github.pullRequests[0]?.body).toContain("🎉 マージ");
+    await factory.stop();
+  });
+
   test("起動時に、処理中のまま残ったジョブを restarted で failed にしてから待ち受ける", async () => {
     const { logger } = capture();
     const dir = tempDir();

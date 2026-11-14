@@ -17,6 +17,7 @@ import { createWebhookHandler, type WebhookHandler } from "./http/webhook.ts";
 import { apiKeyEnvOf, assertProductionProvider, createLlmModels } from "./llm/provider.ts";
 import { installStreamFnGuard } from "./llm/stream.ts";
 import { createLogger, type Logger } from "./log.ts";
+import { type CiMonitor, createCiMonitor } from "./pipeline/ci.ts";
 import { runPipelineInSandbox } from "./pipeline/run.ts";
 import {
   createWorker,
@@ -50,7 +51,7 @@ export interface FactoryServices {
 
 /**
  * DB を開いてマイグレーションを適用し、HTTP の待ち受けを始める。失敗したら開いた DB を閉じて投げる。
- * makeServices を渡すと、起動時の掃除 → Worker の開始 → /webhook 付きの待ち受け、の順に始める（007）。
+ * makeServices を渡すと、起動時の掃除 → Worker と CI 待ちの見回りの開始 → /webhook 付きの待ち受け、の順に始める（007・009）。
  * 005 の入口は開いた DB を使うので、DB を受け取って依存を返す関数で渡す。省くと HTTP（/healthz）だけ
  */
 export async function startFactory(
@@ -68,6 +69,7 @@ export async function startFactory(
   }
 
   let worker: Worker | undefined;
+  let monitor: CiMonitor | undefined;
   let webhook: WebhookHandler | undefined;
   if (makeServices) {
     const services = makeServices(handle.db);
@@ -92,6 +94,9 @@ export async function startFactory(
     }
     const started = createWorker(deps);
     worker = started;
+    // CI 待ちの見回りは Worker と別のループ（009 research R3）。やり直しの印を付けたら Worker を起こす
+    const ci = createCiMonitor({ ...deps, wakeWorker: () => started.wake() });
+    monitor = ci;
     webhook = createWebhookHandler({
       db: handle.db,
       config,
@@ -99,8 +104,10 @@ export async function startFactory(
       github: services.github,
       secret: services.webhookSecret,
       wake: () => started.wake(),
+      wakeCi: () => ci.wake(),
     });
     started.start();
+    ci.start();
   }
 
   const { host, port, shutdown_timeout_seconds: shutdownTimeoutSeconds } = config.http;
@@ -124,6 +131,7 @@ export async function startFactory(
     });
   } catch (error) {
     await worker?.stop();
+    await monitor?.stop();
     handle.close();
     throw error;
   }
@@ -138,9 +146,10 @@ export async function startFactory(
     address: server.address,
     database: handle.sqlite,
     stop() {
-      // Worker（処理中のジョブを中断して報告）→ HTTP → 応答のあとの処理 → DB の順に止める（research R11）
+      // Worker（処理中のジョブを中断して報告）→ CI 待ちの見回り → HTTP → 応答のあとの処理 → DB の順に止める（research R11）
       stopping ??= (async () => {
         await worker?.stop();
+        await monitor?.stop();
         await server.close();
         await webhook?.idle();
         handle.close();

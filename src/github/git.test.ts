@@ -6,6 +6,7 @@ import { describe, expect, test } from "vitest";
 import {
   CloneError,
   changedFiles,
+  cloneBranchForRetry,
   cloneForJob,
   commitForJob,
   type GitRunner,
@@ -306,5 +307,88 @@ describe("pushBranch", () => {
     expect(error).toBeInstanceOf(ShipGitError);
     expect((error as Error).message).not.toContain(TOKEN);
     expect((error as Error).message).toContain("[REDACTED]");
+  });
+});
+
+describe("cloneBranchForRetry（009）", () => {
+  /** bare に main から2つの commit を積んだ作業ブランチを作る。main の先頭と作業ブランチの先頭を返す */
+  async function branchWithCommits() {
+    const { baseUrl, root } = await createBareRepo();
+    const bare = join(root, "octo-org", "demo.git");
+    const seed = join(root, "seed2");
+    await execa("git", ["clone", "--quiet", bare, seed]);
+    const git = (...args: string[]) =>
+      execa("git", [
+        "-C",
+        seed,
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@example.invalid",
+        ...args,
+      ]);
+    const base = (await git("rev-parse", "HEAD")).stdout.trim();
+    await git("switch", "--quiet", "-c", "agent/issue-7-job-1");
+    for (const n of [1, 2]) {
+      writeFileSync(join(seed, `f${n}.txt`), `${n}\n`);
+      await git("add", ".");
+      await git("commit", "-qm", `c${n}`);
+    }
+    await git("push", "--quiet", "origin", "agent/issue-7-job-1");
+    const head = (await git("rev-parse", "HEAD")).stdout.trim();
+    return { baseUrl, root, base, head };
+  }
+
+  test("作業ブランチの先頭が HEAD で、基準の commit が履歴にある。トークンは引数・.git/config に残らない", async () => {
+    const { baseUrl, root, base, head } = await branchWithCommits();
+    const dir = join(root, "work", "job-1", "repo");
+    const { calls, run } = recordingRunner();
+    const out = await cloneBranchForRetry({
+      repo: "octo-org/demo",
+      token: TOKEN,
+      branch: "agent/issue-7-job-1",
+      baseSha: base,
+      dir,
+      baseUrl,
+      run,
+    });
+    expect(out.head).toBe(head);
+    expect((await execa("git", ["-C", dir, "branch", "--show-current"])).stdout).toBe(
+      "agent/issue-7-job-1",
+    );
+    expect(readFileSync(join(dir, "f2.txt"), "utf8")).toBe("2\n");
+    expect((await execa("git", ["-C", dir, "status", "--porcelain"])).stdout).toBe("");
+    for (const call of calls) expect(call.args.join(" ")).not.toContain(TOKEN);
+    const config = readFileSync(join(dir, ".git", "config"), "utf8");
+    expect(config).not.toContain(TOKEN);
+    expect(config.toLowerCase()).not.toContain("extraheader");
+  });
+
+  test("基準の commit が履歴になければ CloneError", async () => {
+    const { baseUrl, root } = await branchWithCommits();
+    await expect(
+      cloneBranchForRetry({
+        repo: "octo-org/demo",
+        token: TOKEN,
+        branch: "agent/issue-7-job-1",
+        baseSha: "f".repeat(40),
+        dir: join(root, "work", "job-2", "repo"),
+        baseUrl,
+      }),
+    ).rejects.toThrow(CloneError);
+  });
+
+  test("作業ブランチがなければ CloneError で、エラーの文にトークンが入らない", async () => {
+    const { baseUrl, root, base } = await branchWithCommits();
+    const error = await cloneBranchForRetry({
+      repo: "octo-org/demo",
+      token: TOKEN,
+      branch: "agent/missing",
+      baseSha: base,
+      dir: join(root, "work", "job-3", "repo"),
+      baseUrl,
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CloneError);
+    expect(String((error as Error).message)).not.toContain(TOKEN);
   });
 });

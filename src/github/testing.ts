@@ -5,11 +5,13 @@ import { join } from "node:path";
 import { execa } from "execa";
 import {
   type BotIdentity,
+  type CheckRunInfo,
   type CreatePullRequest,
   DraftUnavailableError,
   type GitHubPort,
   type IssueInfo,
   type PullRequestRef,
+  type PullRequestState,
   type RepoPermission,
 } from "./port.ts";
 
@@ -28,11 +30,19 @@ export interface FakeGitHubOptions {
   bot?: BotIdentity;
   /** draft: true の PR の作成を DraftUnavailableError にする */
   draftUnavailable?: boolean;
+  /** commit → チェックの一覧（009） */
+  checkRuns?: Record<string, CheckRunInfo[]>;
+  /** チェックの ID → ログ（009） */
+  checkLogs?: Record<number, string>;
 }
 
 /** 偽の GitHub が持つ PR */
 export interface FakePullRequest extends CreatePullRequest, PullRequestRef {
   autoMerge: boolean;
+  /** 009 */
+  state: "open" | "closed";
+  merged: boolean;
+  headSha: string;
 }
 
 export interface FakeCall {
@@ -129,7 +139,14 @@ export class FakeGitHub implements GitHubPort {
       url: `https://github.com/${req.repo}/pull/${number}`,
       nodeId: `PR_node_${number}`,
     };
-    this.pullRequests.push({ ...req, ...ref, autoMerge: false });
+    this.pullRequests.push({
+      ...req,
+      ...ref,
+      autoMerge: false,
+      state: "open",
+      merged: false,
+      headSha: "",
+    });
     return ref;
   }
 
@@ -152,6 +169,78 @@ export class FakeGitHub implements GitHubPort {
     const pr = this.pullRequests.find((p) => p.nodeId === req.nodeId);
     if (!pr) throw new Error(`PR がありません: ${req.nodeId}`);
     pr.draft = true;
+  }
+
+  async getPullRequest(req: { repo: string; number: number }): Promise<PullRequestState> {
+    await this.enter("getPullRequest", req);
+    const pr = this.pullRequests.find((p) => p.number === req.number);
+    if (!pr) throw new Error(`PR がありません: ${req.number}`);
+    return {
+      number: pr.number,
+      url: pr.url,
+      nodeId: pr.nodeId,
+      state: pr.state,
+      merged: pr.merged,
+      draft: pr.draft,
+      autoMerge: pr.autoMerge,
+      headSha: pr.headSha,
+      body: pr.body,
+    };
+  }
+
+  async getCheckRuns(req: { repo: string; sha: string }): Promise<CheckRunInfo[]> {
+    await this.enter("getCheckRuns", req);
+    return (this.options.checkRuns?.[req.sha] ?? []).map((run) => ({ ...run }));
+  }
+
+  async getCheckRunLog(req: { repo: string; check: CheckRunInfo }): Promise<string | undefined> {
+    try {
+      await this.enter("getCheckRunLog", { repo: req.repo, id: req.check.id });
+    } catch {
+      return undefined;
+    }
+    return this.options.checkLogs?.[req.check.id];
+  }
+
+  /** テスト用: commit のチェックを差し替える（009） */
+  setCheckRuns(sha: string, runs: CheckRunInfo[]): void {
+    this.options.checkRuns = { ...this.options.checkRuns, [sha]: runs };
+  }
+
+  /** テスト用: 既存の PR を足す（009。ジョブを ci_waiting から始めるテスト用） */
+  addPullRequest(pr: Partial<FakePullRequest> & { number: number }): FakePullRequest {
+    const full: FakePullRequest = {
+      repo: "octo-org/demo",
+      head: "agent/issue-1-job-1",
+      base: "main",
+      title: "t",
+      body: "",
+      draft: false,
+      url: `https://github.com/octo-org/demo/pull/${pr.number}`,
+      nodeId: `PR_node_${pr.number}`,
+      autoMerge: false,
+      state: "open",
+      merged: false,
+      headSha: "",
+      ...pr,
+    };
+    this.pullRequests.push(full);
+    return full;
+  }
+
+  /** テスト用: PR をマージ済みにする（009） */
+  mergePullRequest(number: number): void {
+    const pr = this.pullRequests.find((p) => p.number === number);
+    if (!pr) throw new Error(`PR がありません: ${number}`);
+    pr.state = "closed";
+    pr.merged = true;
+  }
+
+  /** テスト用: PR をマージせずに閉じる（009） */
+  closePullRequest(number: number): void {
+    const pr = this.pullRequests.find((p) => p.number === number);
+    if (!pr) throw new Error(`PR がありません: ${number}`);
+    pr.state = "closed";
   }
 }
 

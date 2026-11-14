@@ -117,6 +117,8 @@ export const FactoryConfigSchema = Type.Object(
       {
         /** キューを見る間隔。受付が積んだときは待たずに取り出す（007） */
         poll_interval_seconds: Range(1, 300, 5),
+        /** CI 待ちの見回りの間隔。CI の知らせを受けたときは待たずに見る（009） */
+        ci_check_interval_seconds: Range(10, 3600, 60),
       },
       { ...strict, default: {} },
     ),
@@ -195,6 +197,8 @@ export const FactoryConfigSchema = Type.Object(
         max_file_list_chars: Range(1000, 100000, 10000),
         /** 依存のインストールのコマンド（ネットワークありの一時的な作業場で sh -c）。空なら飛ばす（007） */
         install_command: Type.String({ default: "pnpm install --frozen-lockfile" }),
+        /** CI 失敗後のやり直しで実装役に渡す CI のログの合計の上限（009） */
+        max_ci_log_chars: Range(1000, 100000, 12000),
       },
       { ...strict, default: {} },
     ),

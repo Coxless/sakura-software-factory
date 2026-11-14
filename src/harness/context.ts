@@ -37,6 +37,8 @@ export const DATA_TAGS = [
   "files",
   "diff",
   "checks",
+  // 009: CI のログ
+  "ci_log",
 ] as const;
 
 export const NO_AGENTS_MD =

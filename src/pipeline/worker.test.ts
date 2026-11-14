@@ -561,6 +561,37 @@ describe("recoverOnStartup と stop（US5）", () => {
     expect(s.removed).toContain(undefined);
   });
 
+  test("ci_waiting（pending・passed・failed）は残し、やり直しの途中で中断したジョブは restarted で PR を Draft に（009）", async () => {
+    const s = await setup();
+    const statuses = ["pending", "passed", "failed"] as const;
+    const waiting = statuses.map((ci, i) => {
+      const job = s.enqueue(i + 1);
+      s.db
+        .update(jobs)
+        .set({ status: "ci_waiting", ci_status: ci, pr_number: i + 1 })
+        .where(eq(jobs.id, job.id))
+        .run();
+      return job.id;
+    });
+    const retrying = s.enqueue(9);
+    s.db
+      .update(jobs)
+      .set({ status: "implementing", pr_number: 9, ci_retries: 1 })
+      .where(eq(jobs.id, retrying.id))
+      .run();
+    s.github.addPullRequest({ number: 9, repo: "octo-org/demo", autoMerge: true });
+
+    const { failedJobs } = await recoverOnStartup(s.deps);
+    expect(failedJobs).toBe(1);
+    expect(waiting.map((id) => s.jobOf(id).status)).toEqual([
+      "ci_waiting",
+      "ci_waiting",
+      "ci_waiting",
+    ]);
+    expect(s.jobOf(retrying.id).failure_reason).toMatch(/^restarted: /);
+    expect(s.github.pullRequests[0]?.draft).toBe(true);
+  });
+
   test("stop() で取り出しが止まり、処理中のジョブは中断されて stopped になってから resolve", async () => {
     let signal: AbortSignal | undefined;
     const s = await setup({
@@ -635,5 +666,125 @@ describe("recoverOnStartup と stop（US5）", () => {
     const started = Date.now();
     await worker.stop();
     expect(Date.now() - started).toBeLessThan(200);
+  });
+});
+
+describe("Worker: CI 失敗後のやり直し（009）", () => {
+  const PLAN = {
+    summary: "README を直す",
+    steps: ["直す"],
+    acceptance_criteria: ["直っている"],
+    work_type: "docs" as const,
+  };
+
+  /** 1回目は出荷まで、2回目以降は retry の挙動で回す */
+  async function shippedThenFailed(
+    retry: (input: Omit<PipelineInput, "workspace">) => Promise<PipelineResult>,
+  ) {
+    let calls = 0;
+    const s = await setup({
+      pipeline: async (input) => {
+        calls += 1;
+        for (const phase of ["implementing", "testing", "judging"] as const)
+          input.onPhase?.(phase, 1);
+        if (calls === 1) {
+          writeFileSync(join(input.workdir, "README.md"), "# demo\n\n直した\n");
+          return result("passed", { verdict: verdict(), plan: PLAN, planText: "計画の文" });
+        }
+        return retry(input);
+      },
+    });
+    const job = s.enqueue(1);
+    const worker = s.start();
+    await waitFor(() => s.jobOf(job.id).status === "ci_waiting", 30_000);
+    const shipped = s.jobOf(job.id);
+    s.github.setCheckRuns(shipped.head_sha as string, [
+      { id: 11, name: "test", status: "completed", conclusion: "failure", app: "github-actions" },
+      { id: 12, name: "lint", status: "completed", conclusion: "success", app: "github-actions" },
+    ]);
+    s.github.options.checkLogs = { 11: "2026-11-14T00:00:00Z ##[error]expected 2 but got 3" };
+    return { ...s, job, worker, shipped };
+  }
+
+  test("CI の失敗をログ付きで入口に渡し、同じ PR に追加の push をして ci_waiting に戻る", async () => {
+    const before = Date.now();
+    const s = await shippedThenFailed(async (input) => {
+      writeFileSync(join(input.workdir, "README.md"), "# demo\n\n直した（CI も）\n");
+      return result("passed", { verdict: verdict(), plan: PLAN, planText: "計画の文" });
+    });
+    s.db.update(jobs).set({ ci_status: "failed" }).where(eq(jobs.id, s.job.id)).run();
+    s.worker.wake();
+    await waitFor(
+      () => s.jobOf(s.job.id).ci_retries === 1 && s.jobOf(s.job.id).status === "ci_waiting",
+      30_000,
+    );
+
+    const input = s.pipelineInputs[1];
+    expect(input).toMatchObject({
+      plan: "計画の文",
+      planObject: PLAN,
+      baseCommit: s.shipped.base_sha,
+      preflightChecks: true,
+    });
+    expect(input?.deadline).toBeGreaterThanOrEqual(before + 60 * 60_000);
+    expect(input?.initialFeedback?.[0]?.body).toContain(
+      '<ci_log name="test" conclusion="failure">',
+    );
+    expect(input?.initialFeedback?.[0]?.body).toContain("##[error]expected 2 but got 3");
+    expect(input?.initialFeedback?.[0]?.body).not.toContain("2026-11-14T00:00:00Z");
+    expect(input?.initialFeedback?.[1]?.body).toContain("+直した");
+
+    const after = s.jobOf(s.job.id);
+    expect(after).toMatchObject({ status: "ci_waiting", ci_status: "pending", pr_number: 1 });
+    expect(after.head_sha).not.toBe(s.shipped.head_sha);
+    expect(s.github.count("createPullRequest")).toBe(1);
+    expect(s.github.comments).toHaveLength(1);
+    expect(s.github.pullRequests[0]?.body).toContain("🔁 やり直しを push");
+    await waitFor(() => readdirSync(s.workDir).length === 0);
+  }, 60_000);
+
+  test("やり直しが不合格なら judge_rejected で failed、PR を Draft に", async () => {
+    const s = await shippedThenFailed(async () => result("rejected", { reason: "直っていない" }));
+    s.db.update(jobs).set({ ci_status: "failed" }).where(eq(jobs.id, s.job.id)).run();
+    s.worker.wake();
+    await waitFor(() => s.jobOf(s.job.id).status === "failed", 30_000);
+    expect(s.jobOf(s.job.id).failure_reason).toMatch(/^judge_rejected: /);
+    expect(s.github.pullRequests[0]?.draft).toBe(true);
+    expect(s.github.comments).toHaveLength(2);
+  }, 60_000);
+
+  test("やり直しを新しい依頼より先に取り出す", async () => {
+    const s = await shippedThenFailed(async (input) => {
+      writeFileSync(join(input.workdir, "README.md"), `# demo\n\n${input.jobId}\n`);
+      return result("passed", { verdict: verdict(), plan: PLAN, planText: "計画の文" });
+    });
+    await s.worker.stop();
+    const fresh = s.enqueue(2);
+    s.db.update(jobs).set({ ci_status: "failed" }).where(eq(jobs.id, s.job.id)).run();
+    s.start();
+    await waitFor(() => s.jobOf(fresh.id).status === "ci_waiting", 30_000);
+    expect(s.pipelineInputs.map((i) => i.jobId)).toEqual([s.job.id, s.job.id, fresh.id]);
+  }, 60_000);
+
+  test("出荷の記録がなければ internal_error", async () => {
+    const s = await setup();
+    const job = s.enqueue(1);
+    s.db
+      .update(jobs)
+      .set({
+        status: "ci_waiting",
+        ci_status: "failed",
+        branch: "agent/issue-7-job-1",
+        base_sha: "a".repeat(40),
+        head_sha: "b".repeat(40),
+        pr_number: 4,
+      })
+      .where(eq(jobs.id, job.id))
+      .run();
+    s.github.addPullRequest({ number: 4, repo: "octo-org/demo" });
+    s.start();
+    await waitFor(() => s.jobOf(job.id).status === "failed");
+    expect(s.jobOf(job.id).failure_reason).toMatch(/^internal_error: .*shipped/);
+    expect(s.pipelineInputs).toHaveLength(0);
   });
 });
