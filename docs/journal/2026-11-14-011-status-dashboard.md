@@ -58,3 +58,9 @@
 
 - `pnpm run status:dev` を開発用の DB（`data/factory.dev.db`）に流したら `no such column: repo` で止まった。開発用の DB は 010 のマイグレーション（`deployments` の作り直し）の前のままだった。`status:dev` は読み取り専用でマイグレーションしないので、このエラーのときは `FACTORY_CONFIG=factory.dev.toml pnpm run db:migrate` を案内するようにした
 - マイグレーションのあとは、今月（`2026-11`、`Asia/Tokyo`）の消費が 52 件（実装役 39・検査役 11・計画役 2）と出て、同じ範囲を SQL で数えた `count(*)` の 52 と一致した。Workshop には `sqlite3` コマンドがないので、確かめは `node -e` と better-sqlite3 で行った
+
+## 予行演習
+
+- 1回目は未コミットの Caddyfile の変更を入れたまま流してしまった。`deploy:rehearsal` は HEAD のコミットを bundle にして箱の中で流す（「コミットしていない変更は予行演習に入りません」と最初に出る）ので、途中で止めてコミットしてから流し直した
+- 2回目はすべて通った。追加した確認: `7b /status は認証なしで 401`・`7c 誤ったパスワードで 401`・`7d 正しい認証で 200 と HTML、JSON も返る`。全体の所要時間は 84 秒
+- 箱の中では `caddy hash-password --plaintext` で作ったハッシュを単一引用符で囲んで `caddy.env` に書き、`setup.sh` の `source` と systemd の `EnvironmentFile=` の両方を通って認証できることを確かめた

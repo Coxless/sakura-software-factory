@@ -116,21 +116,21 @@ deployed <コミット> (origin/main)
 
 ## 5. 確かめ方
 
-| 確認                                 | コマンド                                                                                      | 期待する結果                                                                                        |
-| ------------------------------------ | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| サービス                             | `systemctl is-active factory caddy docker`                                                    | 3行とも `active`                                                                                    |
-| 生存確認（外から）                   | 手元から `curl -s https://factory.example.jp/healthz`                                         | `{"status":"ok"}`                                                                                   |
-| 公開していないパス                   | 手元から `curl -s -o /dev/null -w '%{http_code}\n' https://factory.example.jp/`               | `404`                                                                                               |
-| 状況ページ（認証なし）               | 手元から `curl -s -o /dev/null -w '%{http_code}\n' https://factory.example.jp/status`         | `401`                                                                                               |
+| 確認                                 | コマンド                                                                                               | 期待する結果                                                                                        |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| サービス                             | `systemctl is-active factory caddy docker`                                                             | 3行とも `active`                                                                                    |
+| 生存確認（外から）                   | 手元から `curl -s https://factory.example.jp/healthz`                                                  | `{"status":"ok"}`                                                                                   |
+| 公開していないパス                   | 手元から `curl -s -o /dev/null -w '%{http_code}\n' https://factory.example.jp/`                        | `404`                                                                                               |
+| 状況ページ（認証なし）               | 手元から `curl -s -o /dev/null -w '%{http_code}\n' https://factory.example.jp/status`                  | `401`                                                                                               |
 | 状況ページ（認証あり）               | 手元から `curl -s -u <STATUS_USER> 'https://factory.example.jp/status?format=json' \| jq .consumption` | 今月の消費（パスワードを聞かれる）。ブラウザで開くと5つの数値の画面                                 |
-| HTTP から HTTPS へ                   | 手元から `curl -sI http://factory.example.jp/healthz`                                         | `308` と `Location: https://...`                                                                    |
-| ログ                                 | `journalctl -u factory -o cat -n 5`                                                           | JSON の行（`"msg":"factory started"` を含む）                                                       |
-| ファイアウォール                     | `sudo ufw status`                                                                             | `22/tcp`・`80/tcp`・`443/tcp` だけ `ALLOW`                                                          |
-| SSH はパスワードで入れない           | `sudo sshd -T \| grep -E '^(passwordauthentication\|permitrootlogin) '`                       | `passwordauthentication no` と `permitrootlogin without-password`（版によって `prohibit-password`） |
-| ファクトリーのポートが外から届かない | 手元から `nc -zv -w 3 <VPS の IP> 8787`                                                       | 届かない（タイムアウトか拒否）                                                                      |
-| 動いている版                         | `git -C /opt/sakura-factory/app rev-parse HEAD`                                               | 4章の `deployed` のコミット                                                                         |
-| gitleaks                             | `gitleaks version`                                                                            | `8.30.1`                                                                                            |
-| 自動の再起動                         | `sudo systemctl kill -s KILL factory`、30 秒後に `curl -s https://factory.example.jp/healthz` | `{"status":"ok"}`                                                                                   |
+| HTTP から HTTPS へ                   | 手元から `curl -sI http://factory.example.jp/healthz`                                                  | `308` と `Location: https://...`                                                                    |
+| ログ                                 | `journalctl -u factory -o cat -n 5`                                                                    | JSON の行（`"msg":"factory started"` を含む）                                                       |
+| ファイアウォール                     | `sudo ufw status`                                                                                      | `22/tcp`・`80/tcp`・`443/tcp` だけ `ALLOW`                                                          |
+| SSH はパスワードで入れない           | `sudo sshd -T \| grep -E '^(passwordauthentication\|permitrootlogin) '`                                | `passwordauthentication no` と `permitrootlogin without-password`（版によって `prohibit-password`） |
+| ファクトリーのポートが外から届かない | 手元から `nc -zv -w 3 <VPS の IP> 8787`                                                                | 届かない（タイムアウトか拒否）                                                                      |
+| 動いている版                         | `git -C /opt/sakura-factory/app rev-parse HEAD`                                                        | 4章の `deployed` のコミット                                                                         |
+| gitleaks                             | `gitleaks version`                                                                                     | `8.30.1`                                                                                            |
+| 自動の再起動                         | `sudo systemctl kill -s KILL factory`、30 秒後に `curl -s https://factory.example.jp/healthz`          | `{"status":"ok"}`                                                                                   |
 
 ステージング（`https://staging.example.jp`）は、デプロイが一度も成功していないあいだは `502` を返す（想定どおり）。
 
