@@ -6,6 +6,9 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 CADDY_IMAGE="caddy:2.11.9"
+# /status の Basic 認証（011）の検査用の値。caddy hash-password --plaintext lint で作った固定のハッシュ（秘密ではない）
+# shellcheck disable=SC2016 # $ は展開しない（bcrypt のハッシュの一部）
+LINT_STATUS_HASH='$2a$14$TS0DMgXL6axNtj8PU2H78e5NsRoU1nGES70rEbsp0C.yXEyLXTco6'
 failed=0
 
 ok() { printf 'ok   %s\n' "$1"; }
@@ -58,6 +61,7 @@ if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
 else
   if docker run --rm -v "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
     -e FACTORY_DOMAIN=factory.test -e STAGING_DOMAIN=staging.test -e CADDY_TLS=internal \
+    -e STATUS_USER=lint -e STATUS_PASSWORD_HASH="$LINT_STATUS_HASH" \
     "$CADDY_IMAGE" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >"${TMPDIR:-/tmp}/caddy-validate.log" 2>&1; then
     ok "caddy validate"
   else

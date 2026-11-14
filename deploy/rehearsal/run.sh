@@ -36,6 +36,9 @@ trap cleanup EXIT
 
 in_box() { docker exec "$NAME" bash -c "$1"; }
 
+# /status の Basic 認証（011）の予行演習用のパスワード（箱の中だけで使う）
+STATUS_PASSWORD="rehearsal-status-pass"
+
 check() {
   local number="$1" title="$2" command="$3"
   if output="$(in_box "$command" 2>&1)"; then
@@ -99,6 +102,8 @@ in_box "sed -i -e 's/^SAKURA_AI_API_KEY=.*/SAKURA_AI_API_KEY=rehearsal-dummy/' -
 in_box "printf '%s\\n' '-----BEGIN RSA PRIVATE KEY-----' 'rehearsal-dummy' '-----END RSA PRIVATE KEY-----' >/etc/sakura-factory/github-app.pem && chown root:factory /etc/sakura-factory/github-app.pem && chmod 0640 /etc/sakura-factory/github-app.pem"
 in_box "${setup} >/tmp/setup1b.log 2>&1 || true"
 in_box "sed -i -e 's/^FACTORY_DOMAIN=.*/FACTORY_DOMAIN=factory.test/' -e 's/^STAGING_DOMAIN=.*/STAGING_DOMAIN=staging.test/' -e 's/^CADDY_TLS=.*/CADDY_TLS=internal/' /etc/caddy/caddy.env"
+# /status の Basic 認証（011）。ハッシュは箱の中の caddy で作り、本番と同じく単一引用符で囲んで書く
+in_box "hash=\$(caddy hash-password --plaintext ${STATUS_PASSWORD}) && sed -i -e '/^STATUS_USER=/d' -e '/^STATUS_PASSWORD_HASH=/d' /etc/caddy/caddy.env && printf 'STATUS_USER=rehearsal\nSTATUS_PASSWORD_HASH='\''%s'\''\n' \"\$hash\" >>/etc/caddy/caddy.env"
 
 # 2: 値を書いて流し直すと最後まで通る
 if in_box "${setup} >/tmp/setup2.log 2>&1"; then
@@ -123,6 +128,12 @@ check 6 "ステージングに転送する" "${curl_staging} https://staging.tes
 in_box 'systemctl stop staging-dummy'
 check 7 "ステージングが止まると 502、ファクトリーは 200 のまま" \
   "test \"\$(${curl_staging} -o /dev/null -w '%{http_code}' https://staging.test/)\" = 502 && test \"\$(${curl_factory} -o /dev/null -w '%{http_code}' https://factory.test/healthz)\" = 200"
+check 7b "/status は認証なしで 401（ファクトリーに届かない）" \
+  "test \"\$(${curl_factory} -o /dev/null -w '%{http_code}' https://factory.test/status)\" = 401"
+check 7c "/status は誤ったパスワードで 401" \
+  "test \"\$(${curl_factory} -u rehearsal:wrong -o /dev/null -w '%{http_code}' https://factory.test/status)\" = 401"
+check 7d "/status は正しい認証で 200 と HTML、JSON も返る" \
+  "${curl_factory} -u rehearsal:${STATUS_PASSWORD} https://factory.test/status | grep -q 'ソフトウェアファクトリーの状況' && ${curl_factory} -u rehearsal:${STATUS_PASSWORD} 'https://factory.test/status?format=json' | python3 -c 'import json,sys; json.load(sys.stdin)[\"consumption\"]'"
 check 8 "HTTP は HTTPS に 308 で転送" \
   "curl -si --resolve factory.test:80:127.0.0.1 http://factory.test/healthz | grep -qE '^HTTP/1.1 308' && curl -si --resolve factory.test:80:127.0.0.1 http://factory.test/healthz | grep -qi '^location: https://'"
 check 9 "秘密情報のファイルは root:factory 640" "test \"\$(stat -c '%U:%G %a' /etc/sakura-factory/factory.env)\" = 'root:factory 640'"

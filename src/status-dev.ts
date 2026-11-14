@@ -60,7 +60,14 @@ export async function runStatusDevCli(
     );
     return EXIT_OK;
   } catch (error) {
-    io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
+    const message = error instanceof Error ? error.message : String(error);
+    io.stderr(`${message}\n`);
+    // 読み取り専用なのでマイグレーションしない。古い DB なら手順を示す
+    if (/no such (column|table)/.test(message)) {
+      io.stderr(
+        "DB のマイグレーションが古いようです。FACTORY_CONFIG=<設定> pnpm run db:migrate を流してから実行してください\n",
+      );
+    }
     return EXIT_ERROR;
   } finally {
     sqlite?.close();

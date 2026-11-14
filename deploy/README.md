@@ -67,8 +67,23 @@ shred -u /tmp/github-app.pem
 ```bash
 sudoedit /etc/sakura-factory/factory.env   # SAKURA_AI_API_KEY・GITHUB_APP_ID・GITHUB_APP_PRIVATE_KEY_PATH・GITHUB_WEBHOOK_SECRET
 sudo /opt/sakura-factory/app/deploy/scripts/setup.sh   # 今度は caddy.env のひな形を置いて止まる
-sudoedit /etc/caddy/caddy.env              # FACTORY_DOMAIN・STAGING_DOMAIN・CADDY_TLS（メールアドレス）
+sudoedit /etc/caddy/caddy.env              # FACTORY_DOMAIN・STAGING_DOMAIN・CADDY_TLS（メールアドレス）・STATUS_USER・STATUS_PASSWORD_HASH
 ```
+
+`STATUS_USER`・`STATUS_PASSWORD_HASH` は状況ページ（`/status`）の Basic 認証（011）。ハッシュは VPS で作る（Caddy は1つ目の setup.sh で入っている）:
+
+```bash
+caddy hash-password   # パスワードを2回入れる。出力（$2a$14$...）をコピーする
+```
+
+`caddy.env` には、出力を**単一引用符で囲んで**書く（`setup.sh` が `source` で読むので、囲まないと `$` が展開されて壊れる）。パスワードの平文はどこにも書かない。
+
+```
+STATUS_USER=<好きな名前>
+STATUS_PASSWORD_HASH='$2a$14$...'
+```
+
+2つのどちらかが空なら `setup.sh` は止まる（認証なしで `/status` を公開する設定は作らない）。
 
 確かめ方:
 
@@ -106,6 +121,8 @@ deployed <コミット> (origin/main)
 | サービス                             | `systemctl is-active factory caddy docker`                                                    | 3行とも `active`                                                                                    |
 | 生存確認（外から）                   | 手元から `curl -s https://factory.example.jp/healthz`                                         | `{"status":"ok"}`                                                                                   |
 | 公開していないパス                   | 手元から `curl -s -o /dev/null -w '%{http_code}\n' https://factory.example.jp/`               | `404`                                                                                               |
+| 状況ページ（認証なし）               | 手元から `curl -s -o /dev/null -w '%{http_code}\n' https://factory.example.jp/status`         | `401`                                                                                               |
+| 状況ページ（認証あり）               | 手元から `curl -s -u <STATUS_USER> 'https://factory.example.jp/status?format=json' \| jq .consumption` | 今月の消費（パスワードを聞かれる）。ブラウザで開くと5つの数値の画面                                 |
 | HTTP から HTTPS へ                   | 手元から `curl -sI http://factory.example.jp/healthz`                                         | `308` と `Location: https://...`                                                                    |
 | ログ                                 | `journalctl -u factory -o cat -n 5`                                                           | JSON の行（`"msg":"factory started"` を含む）                                                       |
 | ファイアウォール                     | `sudo ufw status`                                                                             | `22/tcp`・`80/tcp`・`443/tcp` だけ `ALLOW`                                                          |

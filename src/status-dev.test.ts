@@ -90,6 +90,19 @@ describe("pnpm run status:dev", () => {
     expect(c.err()).not.toBe("");
   });
 
+  test("マイグレーションが古い DB なら、db:migrate を示して終了コード 1", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "status-dev-"));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, "old.db");
+    const handle = openDatabase(path);
+    handle.sqlite.exec("CREATE TABLE llm_calls (id INTEGER PRIMARY KEY)");
+    handle.close();
+    const c = capture();
+    const code = await runStatusDevCli([], {}, { ...c.io, loadConfig: configWithDb(path) });
+    expect(code).toBe(EXIT_ERROR);
+    expect(c.err()).toContain("pnpm run db:migrate");
+  });
+
   test("知らない引数は終了コード 1", async () => {
     const c = capture();
     expect(await runStatusDevCli(["--bogus"], {}, c.io)).toBe(EXIT_ERROR);

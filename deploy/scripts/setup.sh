@@ -116,7 +116,7 @@ key_owner="$(stat -c '%U:%G %a' "$app_key")"
 [[ "$key_owner" == "root:${FACTORY_USER} 640" ]] ||
   die "${app_key} の所有者と権限を root:${FACTORY_USER}・640 にしてください（現在 ${key_owner}）"
 check_secret_file /etc/caddy/caddy.env "${APP_DIR}/deploy/caddy.env.example" caddy \
-  FACTORY_DOMAIN STAGING_DOMAIN CADDY_TLS
+  FACTORY_DOMAIN STAGING_DOMAIN CADDY_TLS STATUS_USER STATUS_PASSWORD_HASH
 
 step "systemd と Caddy"
 install -m 0644 "${APP_DIR}/deploy/systemd/factory.service" /etc/systemd/system/factory.service

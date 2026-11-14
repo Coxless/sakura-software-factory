@@ -3,6 +3,7 @@
 #   FACTORY_DOMAIN: ファクトリー（GitHub の Webhook の宛先）
 #   STAGING_DOMAIN: ステージングのデモアプリ
 #   CADDY_TLS: 本番は ACME の連絡先のメールアドレス、予行演習は internal（内部の認証局で発行する）
+#   STATUS_USER・STATUS_PASSWORD_HASH: /status の Basic 認証（011。ハッシュは caddy hash-password の出力）
 # ポートの決まり:
 #   127.0.0.1:8787 … ファクトリー（factory.toml の [http].port。変えるならここも変える）
 #   127.0.0.1:3100 … ステージングのデモアプリ（010 の compose で 127.0.0.1 にだけ公開する）
@@ -11,8 +12,15 @@
 	tls {$CADDY_TLS}
 	encode zstd gzip
 
-	# ファクトリーが公開するパスだけを転送する（/webhook は 007、/status は 011 で足す）
-	@factory path /healthz /webhook /status
+	# 状況ページ（011）は Basic 認証を通ったものだけを転送する。値は caddy.env（bcrypt のハッシュだけを置く）
+	handle /status {
+		basic_auth {
+			{$STATUS_USER} {$STATUS_PASSWORD_HASH}
+		}
+		reverse_proxy 127.0.0.1:8787
+	}
+	# ほかに公開するパス（/webhook は 007）
+	@factory path /healthz /webhook
 	handle @factory {
 		reverse_proxy 127.0.0.1:8787
 	}

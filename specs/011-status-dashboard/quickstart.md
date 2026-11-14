@@ -19,7 +19,13 @@ workshop exec dev -- bash -lc 'cd /project && pnpm run status:dev' | jq '.consum
 workshop exec dev -- bash -lc 'cd /project && pnpm run status:dev -- --html' > /tmp/status.html
 ```
 
-- 期待: JSON の `consumption.requests` が `sqlite3 data/factory.dev.db "select count(*) from llm_calls where created_at >= <月初のミリ秒>"` と一致する。HTML をブラウザで開くと5つの数値が並ぶ
+- 期待: JSON の `consumption.requests` が、同じ月の範囲（JSON の `month.start`・`month.end`）で `llm_calls` を数えた値と一致する。HTML をブラウザで開くと5つの数値が並ぶ
+
+```bash
+workshop exec dev -- bash -lc 'cd /project && node -e "const D=require(\"better-sqlite3\");const d=new D(\"data/factory.dev.db\",{readonly:true});console.log(d.prepare(\"select count(*) c from llm_calls where created_at >= ? and created_at < ?\").get(<start>, <end>))"'
+```
+
+- 開発用の DB のマイグレーションが古いと `no such column` で止まり、`db:migrate` を示す。`FACTORY_CONFIG=factory.dev.toml pnpm run db:migrate` を流してから実行する
 
 ## 3. 配備物の検査
 
