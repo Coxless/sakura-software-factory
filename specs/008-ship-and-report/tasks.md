@@ -79,7 +79,9 @@ description: "Task list for 008 ship-and-report"
   - Issue のラベルは PR を作る直前に取り直す（偽の GitHub のラベルを commit のあとに変えて反映される）
   - Issue へのコメント（出荷の知らせ）が1回、`ship_report_posted` の `note`。投稿を失敗させる → `ci_waiting` のまま、`ship_report_failed` の `error`
   - LLM の呼び出しが増えない（`llm_calls` の件数が変わらない）
-- [ ] T013 [US1] `src/pipeline/ship.ts` に `shipJob` を作る（T012 を通す。contracts/module-api.md、research R1〜R9）: ボットの名前 → `commitForJob`（メッセージは PR の題・計画の概要・`Refs #<issue>`・`Factory-Job: <id>`）→ `changedFiles` → `scanSecrets`＋`findInlineAllows`（`git diff <base> <head>` の追加行）→ Issue を取り直してラベル → `evaluateShipChecks` → `ship_checks` を記録 → `blocker` があれば `failJob`（`conditions` 付き）→ `interruption()` を確かめる → `getCloneAccess` でトークンを取り直して `secrets` に足す → `pushBranch` → `createPullRequest`（本文は US3 の `renderShipReport`。US3 の前は仮の本文でよい）→ auto-merge か Draft（R6 の失敗の扱い）→ 1つのトランザクションで `judging` → `pr_opened` → `ci_waiting` と `pr_number` → `shipped` を記録 → Issue に知らせる。例外を投げない（想定外は `internal_error` で `failJob`）
+  - 作業ディレクトリに変更がない（diff が空）→ commit・push・PR をせず `failed`（`internal_error`）
+  - 記録用の logger の出力（テストで集めた JSON）に、push に使ったトークンの値が現れない
+- [ ] T013 [US1] `src/pipeline/ship.ts` に `shipJob` を作る（T012 を通す。contracts/module-api.md、research R1〜R9）: 変更がなければ `internal_error` で `failJob` → ボットの名前 → `commitForJob`（メッセージは PR の題・計画の概要・`Refs #<issue>`・`Factory-Job: <id>`）→ `changedFiles` → `scanSecrets`＋`findInlineAllows`（`git diff <base> <head>` の追加行）→ Issue を取り直してラベル → `evaluateShipChecks` → `ship_checks` を記録 → `blocker` があれば `failJob`（`conditions` 付き）→ `interruption()` を確かめる → `getCloneAccess` でトークンを取り直して `secrets` に足す → `pushBranch` → `createPullRequest`（本文は US3 の `renderShipReport`。US3 の前は仮の本文でよい）→ auto-merge か Draft（R6 の失敗の扱い）→ 1つのトランザクションで `judging` → `pr_opened` → `ci_waiting` と `pr_number` → `shipped` を記録 → Issue に知らせる。例外を投げない（想定外は `internal_error` で `failJob`）
 - [ ] T014 [US1] `src/pipeline/worker.test.ts` に足す: 偽の 005 の入口が `passed` を返すと出荷に進み（ローカルの bare リポジトリ、偽の GitHub）、ジョブが `ci_waiting` で終わり、作業ディレクトリが片付けられ、次のジョブを取り出す。`ci_waiting` のジョブは `recoverOnStartup` で `failed` にならない（FR-019、SC-007）。007 の `shipping_not_available` のテストを置き換える
 - [ ] T015 [US1] `src/pipeline/worker.ts` を変える（T014 を通す）: `classifyOutcome` から `passed` を消し、`result.outcome === "passed"` なら `shipJob` を呼ぶ（`interruption` と `secrets` を渡す）。`WorkerDeps` に `gitleaksPath?` を足す。作業ディレクトリの片付けは出荷のあと。`src/main.ts` の組み立てに出荷の依存を渡す
 
@@ -113,10 +115,10 @@ description: "Task list for 008 ship-and-report"
 ## Phase 7: Polish & Cross-Cutting
 
 - [ ] T019 [P] `src/ship-dev.test.ts` を書き、`src/ship-dev.ts` と `package.json` の `ship:dev` を作る（contracts/ship-dev.md）: 引数の検証（`--repo` の形、`--issue` が正の整数、`--patch` のファイルがある、`--work-type` が `WORK_TYPES`、`--db` の既定は一時ディレクトリ）と終了コード（0・1・2）。テストでは GitHub 層と clone を差し替えてローカルの bare リポジトリで `shipJob` まで通す。LLM の設定（APIキー）を要求しない
-- [ ] T020 [P] 設計ドキュメントを直す（plan.md の「設計ドキュメントとの差分」）: `docs/design/03_アーキテクチャと技術スタック.md` の 3章・4章 #7・#11・8章、`docs/design/04_ガードレールとハーネス設計.md` の 2章 層6・実装メモ
+- [ ] T020 [P] 設計ドキュメントと constitution を直す（plan.md の「設計ドキュメントとの差分」）: `docs/design/03_アーキテクチャと技術スタック.md` の 3章・4章 #7・#11・8章、`docs/design/04_ガードレールとハーネス設計.md` の 2章 層6・実装メモ。`.specify/memory/constitution.md` の原則 VI に「秘密情報が見つかった（確かめられない）変更と、App の権限で push できない変更（`.github/workflows`）は、Draft にもせず push しないで失敗として報告する」を足し、v1.3.2（PATCH、文言の明確化）に上げて Sync Impact Report を更新する（analyze D1）
 - [ ] T021 [P] `specs/007-github-intake/` の `shipping_not_available` の記述（data-model.md・contracts/report.md・research.md R2）に「008 で出荷の工程に置き換えた」と書き足す（007 の決定を消さず、008 へのリンクを足す）
 - [ ] T022 `pnpm run check`・`pnpm run secrets:scan`・`pnpm run deploy:lint` を通す。`factory.toml` の変更で `pnpm run deploy:rehearsal` の設定の検証（9b・9c など）が壊れていないことを確かめる
-- [ ] T023 quickstart.md の2章（`ship:dev` で本物の GitHub）を実行し、結果を journal に書く（`factory-sandbox` の CI・ブランチ保護・auto-merge の許可は運用者の作業。用意できていなければ、できた項目だけを行い、残りを journal に書く）
+- [ ] T023 quickstart.md の2章（`ship:dev` で本物の GitHub）を実行し、結果と、判定の合格から PR ができるまでの所要時間（SC-005、1 分以内）を journal に書く（`factory-sandbox` の CI・ブランチ保護・auto-merge の許可は運用者の作業。用意できていなければ、できた項目だけを行い、残りを journal に書く）
 
 ---
 

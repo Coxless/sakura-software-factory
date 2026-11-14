@@ -106,7 +106,7 @@ specs/008-ship-and-report/
 - `04` 2章 層6: gitleaks は基準のコミットの設定で呼ぶ（作業ツリーの `.gitleaks.toml`・`.gitleaksignore` を使わない）、インラインの `gitleaks:allow` を見つかったものとして扱う、「走査した commit が1でない」をスキャンできないとして扱うこと、秘密情報・CI の定義の変更は Draft ではなく push しないことを足す
 - `04` 2章 実装メモ: 既定の禁止パスに `.gitleaks.toml`・`.gitleaksignore` を足した理由
 - `03` 8章: `pipeline/ship.ts`・`pipeline/ship-checks.ts`・`ship-dev.ts` を足す
-- constitution の変更は要らない（原則 VI の「1つでも満たさなければ Draft」は、push しない場合を含めて「自動マージしない」側に倒しているので矛盾しない）
+- constitution 原則 VI に、秘密情報・CI の定義の変更は Draft にもせず push しないことを明記する（v1.3.2。analyze D1。文言の明確化で、自動マージしない側に倒す方針は変えない）
 
 ## Complexity Tracking
 
