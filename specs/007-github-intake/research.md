@@ -19,7 +19,7 @@
 
 | 005 の `outcome` | 007 の扱い | 報告の詳細 |
 |---|---|---|
-| `passed` | `shipping_not_available`（008 までは出荷しない） | `verdict.reasons` |
+| `passed` | `shipping_not_available`（008 までは出荷しない）（008 で出荷の工程〔[008 の data-model.md](../008-ship-and-report/data-model.md)〕に置き換えた。この分類はもうない） | `verdict.reasons` |
 | `rejected` | `judge_rejected` | `reason`（最後の不合格の理由） |
 | `failed` | `pipeline_failed` | `error` か `reason` |
 | `budget_exceeded` | `budget_exceeded` | `error` |

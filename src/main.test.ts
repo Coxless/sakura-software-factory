@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Writable } from "node:stream";
@@ -120,7 +120,13 @@ describe("startFactory: 受付と Worker（007）", () => {
     return {
       github,
       webhookSecret: SECRET,
-      pipeline: async () => passed,
+      pipeline: async (input) => {
+        // 本物の 005 と同じく工程の境目を知らせ、作業ディレクトリを変える
+        for (const phase of ["implementing", "testing", "judging"] as const)
+          input.onPhase?.(phase, 1);
+        writeFileSync(join(input.workdir, "README.md"), "# demo\n\nupdated\n");
+        return passed;
+      },
       install: async () => ({ exitCode: 0, stderrTail: "" }),
       removeSandboxes: async () => {},
       cloneBaseUrl: baseUrl,
@@ -134,7 +140,7 @@ describe("startFactory: 受付と Worker（007）", () => {
     repository: { full_name: "octo-org/demo" },
   };
 
-  test("/webhook で積んだジョブを Worker が処理し、報告してから stop() で止まる", async () => {
+  test("/webhook で積んだジョブを Worker が出荷まで処理し、Issue に知らせてから stop() で止まる", async () => {
     const { logger } = capture();
     const dir = tempDir();
     const github = new FakeGitHub({ permissions: { coxless: "admin" } });
@@ -146,7 +152,8 @@ describe("startFactory: 受付と Worker（007）", () => {
     );
     expect(res.status).toBe(202);
     await vi.waitFor(() => expect(github.comments).toHaveLength(1), { timeout: 5000 });
-    expect(github.comments[0]?.body).toContain("shipping_not_available");
+    expect(github.comments[0]?.body).toContain("PR にしました");
+    expect(github.pullRequests).toHaveLength(1);
     await factory.stop();
     expect(factory.database.open).toBe(false);
   });

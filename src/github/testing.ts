@@ -3,7 +3,15 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execa } from "execa";
-import type { GitHubPort, RepoPermission } from "./port.ts";
+import {
+  type BotIdentity,
+  type CreatePullRequest,
+  DraftUnavailableError,
+  type GitHubPort,
+  type IssueInfo,
+  type PullRequestRef,
+  type RepoPermission,
+} from "./port.ts";
 
 type Method = keyof GitHubPort;
 
@@ -16,7 +24,15 @@ export interface FakeGitHubOptions {
   delayMs?: Partial<Record<Method, number>>;
   token?: string;
   defaultBranch?: string;
-  issue?: { title: string; body: string };
+  issue?: { title: string; body: string; labels?: string[] };
+  bot?: BotIdentity;
+  /** draft: true の PR の作成を DraftUnavailableError にする */
+  draftUnavailable?: boolean;
+}
+
+/** 偽の GitHub が持つ PR */
+export interface FakePullRequest extends CreatePullRequest, PullRequestRef {
+  autoMerge: boolean;
 }
 
 export interface FakeCall {
@@ -43,6 +59,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 export class FakeGitHub implements GitHubPort {
   readonly calls: FakeCall[] = [];
   readonly comments: { repo: string; issueNumber: number; body: string }[] = [];
+  readonly pullRequests: FakePullRequest[] = [];
   readonly options: FakeGitHubOptions;
 
   constructor(options: FakeGitHubOptions = {}) {
@@ -85,9 +102,56 @@ export class FakeGitHub implements GitHubPort {
     };
   }
 
-  async getIssue(req: { repo: string; issueNumber: number }) {
+  async getIssue(req: { repo: string; issueNumber: number }): Promise<IssueInfo> {
     await this.enter("getIssue", req);
-    return this.options.issue ?? { title: "README を直す", body: "インストール手順が古い" };
+    const issue = this.options.issue ?? { title: "README を直す", body: "インストール手順が古い" };
+    return { title: issue.title, body: issue.body, labels: [...(issue.labels ?? [])] };
+  }
+
+  async getBotIdentity(req: { repo: string }): Promise<BotIdentity> {
+    await this.enter("getBotIdentity", req);
+    return (
+      this.options.bot ?? {
+        name: "factory-app[bot]",
+        email: "1234+factory-app[bot]@users.noreply.github.com",
+      }
+    );
+  }
+
+  async createPullRequest(req: CreatePullRequest): Promise<PullRequestRef> {
+    await this.enter("createPullRequest", { ...req });
+    if (req.draft && this.options.draftUnavailable) {
+      throw new DraftUnavailableError("Draft pull requests are not supported in this repository.");
+    }
+    const number = this.pullRequests.length + 1;
+    const ref = {
+      number,
+      url: `https://github.com/${req.repo}/pull/${number}`,
+      nodeId: `PR_node_${number}`,
+    };
+    this.pullRequests.push({ ...req, ...ref, autoMerge: false });
+    return ref;
+  }
+
+  async enableAutoMerge(req: { repo: string; nodeId: string }): Promise<void> {
+    await this.enter("enableAutoMerge", req);
+    const pr = this.pullRequests.find((p) => p.nodeId === req.nodeId);
+    if (!pr) throw new Error(`PR がありません: ${req.nodeId}`);
+    pr.autoMerge = true;
+  }
+
+  async updatePullRequestBody(req: { repo: string; number: number; body: string }): Promise<void> {
+    await this.enter("updatePullRequestBody", { repo: req.repo, number: req.number });
+    const pr = this.pullRequests.find((p) => p.number === req.number);
+    if (!pr) throw new Error(`PR がありません: ${req.number}`);
+    pr.body = req.body;
+  }
+
+  async convertToDraft(req: { repo: string; nodeId: string }): Promise<void> {
+    await this.enter("convertToDraft", req);
+    const pr = this.pullRequests.find((p) => p.nodeId === req.nodeId);
+    if (!pr) throw new Error(`PR がありません: ${req.nodeId}`);
+    pr.draft = true;
   }
 }
 

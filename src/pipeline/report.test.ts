@@ -5,7 +5,19 @@ import { FakeGitHub } from "../github/testing.ts";
 import { createLogger } from "../log.ts";
 import { type JobStatus, jobEvents, jobs, llmCalls } from "../queue/schema.ts";
 import { migratedMemoryDb } from "../queue/testing.ts";
-import { FAILURE_KINDS, type FailureKind, failJob, renderFailureReport } from "./report.ts";
+import {
+  FAILURE_KINDS,
+  type FailureKind,
+  failJob,
+  maskWith,
+  pullRequestTitle,
+  renderFailureReport,
+  renderShipNotice,
+  renderShipReport,
+  type ShipReportInput,
+} from "./report.ts";
+import type { PipelineResult } from "./run.ts";
+import type { Condition } from "./ship-checks.ts";
 
 const CONFIG = parseConfig(
   `
@@ -69,7 +81,10 @@ const DESCRIPTIONS: Record<FailureKind, string> = {
   judge_rejected: "やり直しの上限（2 回）まで、判定に合格しませんでした",
   budget_exceeded: "リクエストの予算に達しました",
   timeout: "ジョブの時間の上限（45 分）を超えました",
-  shipping_not_available: "判定には合格しましたが、PR を作る工程はまだありません",
+  secret_detected:
+    "変更に秘密情報らしい値が見つかった（または確かめられなかった）ため、push していません",
+  unshippable_change: "CI の定義（`.github/workflows`）を変更したため、push していません",
+  ship_failed: "commit・push・PR の作成に失敗しました",
   restarted: "ファクトリーの再起動で中断しました",
   stopped: "ファクトリーの停止で中断しました",
   internal_error: "内部エラーが起きました",
@@ -120,13 +135,86 @@ describe("renderFailureReport", () => {
     const body = renderFailureReport(CONFIG, {
       jobId: 3,
       stage: "judging",
-      kind: "shipping_not_available",
+      kind: "judge_rejected",
       requests: 1,
       branch: "b",
       detail: "あ".repeat(3000),
     });
     expect(body).toContain("あ".repeat(2000));
     expect(body).not.toContain("あ".repeat(2001));
+  });
+
+  test("shipping_not_available はもうない（008 で出荷の工程に置き換えた）", () => {
+    expect(FAILURE_KINDS as readonly string[]).not.toContain("shipping_not_available");
+  });
+
+  test("push 済みなら作業ブランチの行に「push 済み」", () => {
+    const body = renderFailureReport(CONFIG, {
+      jobId: 3,
+      stage: "judging",
+      kind: "ship_failed",
+      requests: 1,
+      branch: "agent/issue-7-job-3",
+      pushed: true,
+    });
+    expect(body).toContain("| 作業ブランチ | `agent/issue-7-job-3`（push 済み） |");
+  });
+
+  test("secret_detected は見つかったファイル・行・規則を 20 件まで並べ、値を書かない", () => {
+    const findings = Array.from({ length: 25 }, (_, i) => ({
+      file: `src/f${i}.ts`,
+      line: i + 1,
+      rule: "github-pat",
+    }));
+    const body = renderFailureReport(CONFIG, {
+      jobId: 3,
+      stage: "judging",
+      kind: "secret_detected",
+      requests: 1,
+      branch: "b",
+      conditions: [
+        { name: "verdict", met: true, value: "pass" },
+        { name: "secrets", met: false, value: { status: "found", findings } },
+      ],
+    });
+    expect(body).toContain("- `src/f0.ts`:1（github-pat）");
+    expect(body).toContain("- `src/f19.ts`:20（github-pat）");
+    expect(body).not.toContain("src/f20.ts");
+    expect(body).toContain("ほか 5 件");
+  });
+
+  test("スキャンできなかったときは理由を書く", () => {
+    const body = renderFailureReport(CONFIG, {
+      jobId: 3,
+      stage: "judging",
+      kind: "secret_detected",
+      requests: 1,
+      branch: "b",
+      conditions: [
+        { name: "secrets", met: false, value: { status: "unavailable", error: "gitleaks がない" } },
+      ],
+    });
+    expect(body).toContain("秘密情報のスキャンを実行できませんでした: gitleaks がない");
+  });
+
+  test("unshippable_change は当たったパスを並べる", () => {
+    const body = renderFailureReport(CONFIG, {
+      jobId: 3,
+      stage: "judging",
+      kind: "unshippable_change",
+      requests: 1,
+      branch: "b",
+      conditions: [
+        {
+          name: "forbidden_paths",
+          met: false,
+          value: {
+            matched: [{ path: ".github/workflows/ci.yml", pattern: ".github/workflows/**" }],
+          },
+        },
+      ],
+    });
+    expect(body).toContain("- `.github/workflows/ci.yml`");
   });
 });
 
@@ -214,8 +302,197 @@ describe("failJob", () => {
   test("渡したジョブの状態が古くても、DB の今の状態から failed にする", async () => {
     const { db, deps, github, job } = setup("planning");
     db.update(jobs).set({ status: "judging" }).run();
-    await failJob(deps, job, "shipping_not_available", "合格");
+    await failJob(deps, job, "ship_failed", "push できない");
     expect(db.select().from(jobs).get()?.status).toBe("failed");
     expect(github.comments[0]?.body).toContain("| 止まった工程 | judging |");
+  });
+});
+
+const ALL_MET: Condition[] = [
+  { name: "verdict", met: true, value: "pass" },
+  { name: "diff_size", met: true, value: { lines: 4, max: 300 } },
+  { name: "forbidden_paths", met: true, value: { matched: [] } },
+  { name: "secrets", met: true, value: { status: "clean" } },
+  { name: "skip_label", met: true, value: { label: "no-auto-merge", present: false } },
+  { name: "work_type", met: true, value: { work_type: "docs", allowed: ["bugfix", "docs"] } },
+];
+
+function shipInput(extra: Partial<ShipReportInput> = {}): ShipReportInput {
+  const result: PipelineResult = {
+    outcome: "passed",
+    plan: {
+      summary: "README に検査の説明を足す",
+      steps: ["直す"],
+      acceptance_criteria: ["README に説明がある", "リンクが切れていない"],
+      work_type: "docs",
+    },
+    planText: "",
+    verdict: {
+      verdict: "pass",
+      reasons: "受け入れ条件をすべて満たす",
+      criteria: [
+        { criterion: "README に説明がある", met: true },
+        { criterion: "リンクが切れていない", met: true },
+      ],
+    },
+    reason: "",
+    rounds: [
+      {
+        round: 1,
+        implement: { outcome: "completed", turns: 3, requests: 3, runId: 1 },
+        checks: { status: "passed", runs: 2, fedBack: 1 },
+        verdict: "pass",
+        diffStat: { files: 1, insertions: 3, deletions: 1 },
+      },
+    ],
+    retries: 0,
+    requests: 5,
+    diff: "",
+    diffStat: { files: 1, insertions: 3, deletions: 1 },
+    tracePath: "/tmp/t.jsonl",
+  };
+  return {
+    jobId: 3,
+    issueNumber: 7,
+    result,
+    requests: 5,
+    changes: { files: [{ path: "README.md" }], insertions: 3, deletions: 1 },
+    conditions: ALL_MET,
+    unmet: [],
+    decision: "auto_merge",
+    notes: [],
+    ...extra,
+  };
+}
+
+describe("renderShipReport（008）", () => {
+  test("6条件の表・振り分け・計画・結果を書き、Issue を参照するが閉じない", () => {
+    const body = renderShipReport(CONFIG, shipInput());
+    expect(body).toContain("### 🏭 ファクトリー: ジョブ #3 のまとめ");
+    expect(body).toContain("Refs #7");
+    expect(body).not.toMatch(/\b(close[sd]?|fix(e[sd])?|resolve[sd]?) #7/i);
+    expect(body).toContain("**自動マージ**: auto-merge（squash）を有効にしました");
+    expect(body).toContain("| 検査役の判定 | ✅ | 合格 |");
+    expect(body).toContain("| diff の大きさ | ✅ | 4 行 / 上限 300 行 |");
+    expect(body).toContain("| 禁止パス | ✅ | なし |");
+    expect(body).toContain("| 秘密情報のスキャン | ✅ | 見つかりませんでした |");
+    expect(body).toContain("| `no-auto-merge` ラベル | ✅ | なし |");
+    expect(body).toContain("| 作業の種類 | ✅ | `docs`（許可: `bugfix`, `docs`） |");
+    expect(body).toContain("1. README に説明がある");
+    expect(body).toContain("| 工程内テスト | 成功（2 回実行） |");
+    expect(body).toContain("| 判定 | 合格。受け入れ条件 ✅ 2 / 2 |");
+    expect(body).toContain("| やり直し | 0 回 |");
+    expect(body).toContain("| 消費したリクエスト | 5 / 1ジョブの上限 10 |");
+    expect(body).toContain("| 変更 | 1 ファイル（+3 −1） |");
+    expect(body).toContain("- `README.md`");
+  });
+
+  test("Draft の文に満たさなかった条件と notes を書く", () => {
+    const conditions: Condition[] = ALL_MET.map((c) =>
+      c.name === "work_type"
+        ? { name: "work_type", met: false, value: { work_type: "feature", allowed: ["docs"] } }
+        : c,
+    );
+    const body = renderShipReport(
+      CONFIG,
+      shipInput({
+        conditions,
+        unmet: ["work_type"],
+        decision: "draft",
+        notes: ["auto_merge_failed: Pull request is in clean status", "draft_unavailable"],
+      }),
+    );
+    expect(body).toContain(
+      "Draft PR にしました。人間の確認を待ちます。満たさなかった条件: 作業の種類。",
+    );
+    expect(body).toContain("auto-merge を有効にできませんでした: Pull request is in clean status");
+    expect(body).toContain("このリポジトリでは Draft PR を作れないため、通常の PR にしました");
+    expect(body).toContain("| 作業の種類 | ❌ | `feature`（許可: `docs`） |");
+  });
+
+  test("unsettled の文", () => {
+    const body = renderShipReport(
+      CONFIG,
+      shipInput({
+        decision: "unsettled",
+        notes: ["auto_merge_failed: x", "convert_to_draft_failed: y"],
+      }),
+    );
+    expect(body).toContain("auto-merge を有効にできず、Draft にも変えられませんでした");
+  });
+
+  test("ファイルは 50 件まで、判定の理由は 2000 文字まで、本文は 60000 文字以下", () => {
+    const input = shipInput({
+      changes: {
+        files: Array.from({ length: 60 }, (_, i) => ({ path: `f${i}.ts` })),
+        insertions: 1,
+        deletions: 0,
+      },
+    });
+    if (input.result.verdict) input.result.verdict.reasons = "理".repeat(3000);
+    const body = renderShipReport(CONFIG, input);
+    expect(body).toContain("- `f49.ts`");
+    expect(body).not.toContain("- `f50.ts`");
+    expect(body).toContain("- ほか 10 件");
+    expect(body).toContain("理".repeat(2000));
+    expect(body).not.toContain("理".repeat(2001));
+
+    const huge = shipInput({
+      changes: {
+        files: Array.from({ length: 50 }, (_, i) => ({ path: `${"d/".repeat(600)}f${i}.ts` })),
+        insertions: 1,
+        deletions: 0,
+      },
+    });
+    expect(renderShipReport(CONFIG, huge).length).toBeLessThanOrEqual(60000);
+  });
+
+  test("maskWith を通すと秘密情報らしい文字列が伏せ字になる", () => {
+    const input = shipInput();
+    if (input.result.verdict)
+      input.result.verdict.reasons = "ghs_FakeInstallationToken0123456789abcd が見えた";
+    const body = maskWith(renderShipReport(CONFIG, input), [
+      "ghs_FakeInstallationToken0123456789abcd",
+    ]);
+    expect(body).not.toContain("ghs_FakeInstallationToken0123456789abcd");
+    expect(body).toContain("[REDACTED]");
+  });
+});
+
+describe("renderShipNotice・pullRequestTitle（008）", () => {
+  test("Issue のコメントに PR へのリンクと振り分けを書く", () => {
+    expect(
+      renderShipNotice({
+        jobId: 3,
+        prUrl: "https://x/pull/1",
+        decision: "auto_merge",
+        unmet: [],
+        requests: 5,
+      }),
+    ).toBe(
+      "🏭 ジョブ #3 の変更を PR にしました: https://x/pull/1\n\n- 自動マージ: auto-merge を予約しました\n- 消費したリクエスト: 5",
+    );
+    expect(
+      renderShipNotice({
+        jobId: 3,
+        prUrl: "u",
+        decision: "draft",
+        unmet: ["diff_size", "work_type"],
+        requests: 5,
+      }),
+    ).toContain("Draft にしました（満たさなかった条件: diff_size, work_type）");
+  });
+
+  test("PR の題は計画の概要の1行目を 72 文字で切り詰める。計画がなければ Issue の番号", () => {
+    const plan = {
+      summary: "README を直す\n詳細",
+      steps: ["a"],
+      acceptance_criteria: ["b"],
+      work_type: "docs" as const,
+    };
+    expect(pullRequestTitle(plan, 7)).toBe("README を直す");
+    const long = { ...plan, summary: "あ".repeat(100) };
+    expect(Array.from(pullRequestTitle(long, 7))).toHaveLength(72);
+    expect(pullRequestTitle(undefined, 7)).toBe("Issue #7 への対応");
   });
 });

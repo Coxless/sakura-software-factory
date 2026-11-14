@@ -34,8 +34,10 @@ job_timeout_minutes = 60       # ジョブ全体の時間の上限
 ci_wait_timeout_minutes = 30   # CI 待ちの時間の上限
 
 [auto_merge]
+# 出荷前チェックの条件。項目の説明: specs/008-ship-and-report/contracts/factory-toml.md
 max_diff_lines = 300   # これを超える diff は Draft PR にする
-# 変更したら自動マージしないパス（glob）
+# 変更したら自動マージしないパス（glob）。.github/workflows の下は push もしない（App に権限がない）
+# .gitleaks.toml・.gitleaksignore は CI の秘密情報スキャンの許可が変わるので人間に見せる
 forbidden_paths = [
   ".github/workflows/**",
   ".env*",
@@ -43,8 +45,11 @@ forbidden_paths = [
   "**/package-lock.json",
   "**/yarn.lock",
   "deploy/**",
+  ".gitleaks.toml",
+  ".gitleaksignore",
 ]
 allowed_work_types = ["bugfix", "test", "docs", "refactor"]   # 自動マージを許す作業の種類
+skip_label = "no-auto-merge"   # Issue にこのラベルがあれば Draft にする
 
 [github]
 allowed_users = ["Coxless"]   # @agent を実行できるユーザー（書き込み権限の確認に加えて絞る）

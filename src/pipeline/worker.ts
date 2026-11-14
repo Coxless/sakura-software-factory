@@ -6,6 +6,7 @@ import { claimNextQueuedJob, listInterruptedJobs } from "../queue/jobs.ts";
 import { type Job, jobs } from "../queue/schema.ts";
 import { type FailJobExtra, type FailureKind, failJob, type ReportDeps } from "./report.ts";
 import type { PipelineInput, PipelinePhase, PipelineResult } from "./run.ts";
+import { type ShipDeps, shipJob } from "./ship.ts";
 import { isTerminal, StateTransitionError, transition } from "./state.ts";
 
 /**
@@ -14,7 +15,7 @@ import { isTerminal, StateTransitionError, transition } from "./state.ts";
  */
 export type PipelinePort = (input: Omit<PipelineInput, "workspace">) => Promise<PipelineResult>;
 
-export interface WorkerDeps extends ReportDeps {
+export interface WorkerDeps extends ReportDeps, Pick<ShipDeps, "gitleaksPath" | "scanTimeoutMs"> {
   pipeline: PipelinePort;
   /**
    * 003 の依存のインストール（installDependencies に ["sh", "-c", config.pipeline.install_command]）。
@@ -56,7 +57,10 @@ function firstLine(text: string): string {
   return Array.from(line).slice(0, MAX_REASON_CHARS).join("");
 }
 
-/** 005 の結果を分類する（research R2 の表）。message は failure_reason 用の短い文、detail は報告の詳細 */
+/**
+ * 005 の結果（合格以外）を分類する（007 research R2 の表）。message は failure_reason 用の短い文、detail は報告の詳細。
+ * 合格（passed）は 008 の出荷の工程（shipJob）に進むので、ここでは扱わない
+ */
 export function classifyOutcome(result: PipelineResult): {
   kind: FailureKind;
   message: string;
@@ -64,11 +68,8 @@ export function classifyOutcome(result: PipelineResult): {
 } {
   switch (result.outcome) {
     case "passed":
-      return {
-        kind: "shipping_not_available",
-        message: "判定に合格（出荷の工程は 008 で作る）",
-        detail: result.verdict?.reasons ?? result.reason,
-      };
+      // Worker は合格を shipJob に回すので、ここには来ない
+      return { kind: "internal_error", message: "合格した結果を分類しようとしました" };
     case "rejected":
       return {
         kind: "judge_rejected",
@@ -190,7 +191,7 @@ export function createWorker(deps: WorkerDeps): Worker {
 
     // 期限は1つの合図にまとめる（タイマーと now() の比較がずれて、期限切れを取りこぼさないように）
     const expiry = AbortSignal.timeout(Math.max(0, deadline - now()));
-    const interruption = (): FailureKind | undefined =>
+    const interruption = (): "stopped" | "timeout" | undefined =>
       state.stop.signal.aborted ? "stopped" : expiry.aborted ? "timeout" : undefined;
     const interruptionMessage = (kind: FailureKind) =>
       kind === "stopped" ? "停止の合図で中断しました" : "ジョブの期限を過ぎました";
@@ -283,6 +284,24 @@ export function createWorker(deps: WorkerDeps): Worker {
         });
       } catch (error) {
         await fail("internal_error", firstLine(errorText(error)), { detail: errorText(error) });
+        return;
+      }
+      if (result.outcome === "passed") {
+        // 出荷（008）。作業ディレクトリは出荷が終わってから finally で片付ける
+        log.info({ requests: result.requests }, "判定に合格しました。出荷します");
+        if (state.abandoned) return;
+        // 005 は合格の前に judging を通る。通っていなくても、出荷の前に judging にそろえる（表にない遷移は warn だけ）
+        advancePhase(deps, id, "judging");
+        const shipped = await shipJob(deps, {
+          job,
+          workdir,
+          branch,
+          issue,
+          result,
+          interruption,
+          secrets,
+        });
+        log.info({ shipped }, "出荷の工程が終わりました");
         return;
       }
       const { kind, message, detail } = classifyOutcome(result);

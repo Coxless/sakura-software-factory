@@ -43,7 +43,7 @@ kill -TERM %1   # 終了コード 0 で止まる
 | # | 操作 | 期待 |
 |---|---|---|
 | 1 | 権限のあるアカウントで `@agent README を直して` とコメント | 数秒で `eyes` のリアクション。`jobs` に1行 |
-| 2 | 1のジョブを Worker が処理する（AI解禁の前は上の設定で） | 解禁前: Issue に `pipeline_failed` の報告が1回（理由に「同じモデル」）。`work_dir/job-<id>` と作業場が残らない。解禁後（設定を戻す）: 報告が1回（008 までは `shipping_not_available`・`judge_rejected` など）で、`job_events` に `planning`〜`judging` の遷移 |
+| 2 | 1のジョブを Worker が処理する（AI解禁の前は上の設定で） | 解禁前: Issue に `pipeline_failed` の報告が1回（理由に「同じモデル」）。`work_dir/job-<id>` と作業場が残らない。解禁後（設定を戻す）: 報告が1回（008 からは合格なら PR ができて `ci_waiting`。不合格は `judge_rejected` など）で、`job_events` に `planning`〜`judging` の遷移 |
 | 3 | 権限のないアカウントで同じコメント | 何も起きない（ログに `ignored`） |
 | 4 | App の「Recent Deliveries」から1の配送を再送 | `duplicate`。ジョブは増えない |
 

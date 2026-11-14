@@ -90,12 +90,16 @@ export const FactoryConfigSchema = Type.Object(
             "**/package-lock.json",
             "**/yarn.lock",
             "deploy/**",
+            ".gitleaks.toml",
+            ".gitleaksignore",
           ],
         }),
         allowed_work_types: Type.Array(NonEmpty, {
           minItems: 1,
           default: ["bugfix", "test", "docs", "refactor"],
         }),
+        /** Issue にこのラベルがあれば Draft にする（008）。GitHub のラベルの名前の上限は 50 文字 */
+        skip_label: Type.String({ minLength: 1, maxLength: 50, default: "no-auto-merge" }),
       },
       { ...strict, default: {} },
     ),

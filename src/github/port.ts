@@ -19,8 +19,62 @@ export interface GitHubPort {
   createIssueComment(req: { repo: string; issueNumber: number; body: string }): Promise<string>;
   /** git に渡す短命のトークンと既定のブランチ */
   getCloneAccess(req: { repo: string }): Promise<{ token: string; defaultBranch: string }>;
-  /** Issue の題と本文（jobs に保存しないので Worker が準備のときに取る）。本文が null なら空文字 */
-  getIssue(req: { repo: string; issueNumber: number }): Promise<{ title: string; body: string }>;
+  /**
+   * Issue の題・本文・ラベルの名前（jobs に保存しないので Worker が準備のときに取る。008 の出荷前チェックは
+   * PR を作る直前に取り直してラベルを見る）。本文が null なら空文字
+   */
+  getIssue(req: { repo: string; issueNumber: number }): Promise<IssueInfo>;
+  /**
+   * commit の作成者に使う App のボット（008 research R7）。App の JWT で呼べるのは /app 系だけなので、
+   * ボットのアカウントの ID はリポジトリのインストールの認証で引く
+   */
+  getBotIdentity(req: { repo: string }): Promise<BotIdentity>;
+  /** PR を作る。Draft を作れない（422 で Draft が使えない）ときは DraftUnavailableError */
+  createPullRequest(req: CreatePullRequest): Promise<PullRequestRef>;
+  /** auto-merge（squash）を有効にする。失敗は例外（message は GitHub の理由） */
+  enableAutoMerge(req: { repo: string; nodeId: string }): Promise<void>;
+  /** PR を Draft に変える。失敗は例外 */
+  convertToDraft(req: { repo: string; nodeId: string }): Promise<void>;
+  /** PR の本文を書き直す（振り分けが変わったとき。009・010 の書き足しにも使う）。失敗は例外 */
+  updatePullRequestBody(req: { repo: string; number: number; body: string }): Promise<void>;
+}
+
+export interface IssueInfo {
+  title: string;
+  body: string;
+  labels: string[];
+}
+
+/** { name: "<slug>[bot]", email: "<id>+<slug>[bot]@users.noreply.github.com" } */
+export interface BotIdentity {
+  name: string;
+  email: string;
+}
+
+export interface CreatePullRequest {
+  repo: string;
+  /** 作業ブランチ */
+  head: string;
+  /** 既定のブランチ */
+  base: string;
+  title: string;
+  body: string;
+  draft: boolean;
+}
+
+export interface PullRequestRef {
+  number: number;
+  url: string;
+  /** GraphQL の ID（auto-merge・Draft への変更に使う） */
+  nodeId: string;
+}
+
+/** このリポジトリでは Draft PR を作れない（GitHub の無料プランの非公開リポジトリなど） */
+export class DraftUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DraftUnavailableError";
+  }
 }
 
 /** Webhook から取り出した依頼（GitHub の型から変換したもの） */

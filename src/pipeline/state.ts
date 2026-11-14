@@ -51,7 +51,7 @@ export class StateTransitionError extends Error {
 }
 
 /** 遷移と一緒に書く列 */
-export type TransitionFields = Partial<Pick<Job, "failure_reason" | "branch">>;
+export type TransitionFields = Partial<Pick<Job, "failure_reason" | "branch" | "pr_number">>;
 
 /**
  * 状態を1つ進める。状態の更新と job_events の state_changed を1つのトランザクションで書く。
@@ -67,36 +67,62 @@ export function transition(
   detail?: object,
   fields: TransitionFields = {},
 ): Job {
-  if (!canTransition(from, to)) {
-    throw new StateTransitionError(jobId, from, to, "遷移の表にありません");
+  return transitionPath(db, jobId, [from, to], now, detail, fields);
+}
+
+/**
+ * 状態を path の順に続けて進める（008: judging → pr_opened → ci_waiting）。すべての遷移と記録を1つのトランザクションで
+ * 書くので、途中の状態のまま残らない。1つでも表にない・現在の状態が path[0] でなければ、何も変えない。
+ * fields は最後の更新で書く
+ */
+export function transitionPath(
+  db: Db,
+  jobId: number,
+  path: readonly [JobStatus, JobStatus, ...JobStatus[]],
+  now: number,
+  detail?: object,
+  fields: TransitionFields = {},
+): Job {
+  for (let i = 1; i < path.length; i++) {
+    const from = path[i - 1] as JobStatus;
+    const to = path[i] as JobStatus;
+    if (!canTransition(from, to)) {
+      throw new StateTransitionError(jobId, from, to, "遷移の表にありません");
+    }
   }
   return db.transaction(
     (tx) => {
-      const updated = tx
-        .update(jobs)
-        .set({
-          ...fields,
-          status: to,
-          updated_at: now,
-          ...(isTerminal(to) ? { finished_at: now } : {}),
-        })
-        .where(and(eq(jobs.id, jobId), eq(jobs.status, from)))
-        .returning()
-        .get();
-      if (!updated) {
-        throw new StateTransitionError(jobId, from, to, `現在の状態が ${from} ではありません`);
+      let updated: Job | undefined;
+      for (let i = 1; i < path.length; i++) {
+        const from = path[i - 1] as JobStatus;
+        const to = path[i] as JobStatus;
+        const last = i === path.length - 1;
+        updated = tx
+          .update(jobs)
+          .set({
+            ...(last ? fields : {}),
+            status: to,
+            updated_at: now,
+            ...(isTerminal(to) ? { finished_at: now } : {}),
+          })
+          .where(and(eq(jobs.id, jobId), eq(jobs.status, from)))
+          .returning()
+          .get();
+        if (!updated) {
+          throw new StateTransitionError(jobId, from, to, `現在の状態が ${from} ではありません`);
+        }
+        tx.insert(jobEvents)
+          .values({
+            job_id: jobId,
+            type: "state_changed",
+            from_status: from,
+            to_status: to,
+            detail: detail === undefined ? null : JSON.stringify(detail),
+            created_at: now,
+          })
+          .run();
       }
-      tx.insert(jobEvents)
-        .values({
-          job_id: jobId,
-          type: "state_changed",
-          from_status: from,
-          to_status: to,
-          detail: detail === undefined ? null : JSON.stringify(detail),
-          created_at: now,
-        })
-        .run();
-      return updated;
+      return updated as Job;
     },
     { behavior: "immediate" },
   );
