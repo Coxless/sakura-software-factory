@@ -43,10 +43,13 @@ DB のスキーマは変えない。評価のジョブは既存の `jobs` に1�
 
 **Judgement**: `model`、`verdict`（`pass` / `fail` / `none`=判定できない）、`error?`、`comparable`（R6 の分母に入るか）、`calls`・`inputTokens`・`outputTokens`・`latencyMs`（その工程名の `llm_calls` の合計）
 
+主の検査役の `verdict`: `lastJudge` があり `result.verdict` があればその合否、`lastJudge` があり `result.verdict` がない（出力が2回とも壊れた・判定中に失敗した）なら `none`、`lastJudge` がなければ Judgement 自体を持たない。
+
 **状態の決まり方**:
 
 ```
 準備に失敗 / 予期しない例外 → error
+工程の終わり方が aborted → failed (failure=pipeline)。隠しチェックと比較用の判定は行わない
 工程の終わり方が passed 以外 → failed (failure=pipeline)。ただし budget_exceeded・aborted で評価が止まる場合も failed として残す
 隠しチェックが unavailable → error
 passed かつ 隠しチェック passed → succeeded
