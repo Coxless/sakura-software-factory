@@ -1,0 +1,8 @@
+work_type = "test"
+project = "projects/inventory"
+check_commands = ['node --test "test/**/*.test.ts"', "node scripts/lint.ts"]
+
+[grader]
+# エージェントのテストが通り、かつ formatPrice を壊した版（4種類）をすべて見つけられること
+commands = ["node --test test/price.test.ts", "node --test .eval/price-mutants.test.ts"]
+timeout_seconds = 300

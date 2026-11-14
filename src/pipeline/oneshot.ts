@@ -5,7 +5,7 @@
 import type { Static, TSchema } from "typebox";
 import { extractJsonObject, repairMessage, validate } from "../harness/structured.ts";
 import { type CompletionMessage, completeOnce } from "../llm/complete.ts";
-import { apiKeyEnvOf } from "../llm/provider.ts";
+import { apiKeyEnvOf, type ModelRole } from "../llm/provider.ts";
 import type { GateDeps } from "../llm/stream.ts";
 import { countLlmCallsForJob } from "../queue/llm-calls.ts";
 import type { AgentRunOutcome, LlmRole, VerdictValue } from "../queue/schema.ts";
@@ -33,8 +33,12 @@ export interface OneShotDeps {
 
 export interface OneShotRequest<S extends TSchema> {
   jobId: number;
-  phase: "plan" | "judge";
+  /** judge_alt は 012 の回帰評価での比較用の検査役 */
+  phase: "plan" | "judge" | "judge_alt";
+  /** llm_calls.role に書く役割 */
   role: Extract<LlmRole, "planner" | "verifier">;
+  /** モデルを引く役割（既定は role）。比較用の検査役は "verifier_alt"（012） */
+  modelRole?: Extract<ModelRole, "planner" | "verifier" | "verifier_alt">;
   schema: S;
   systemPrompt: string;
   userMessage: string;
@@ -79,7 +83,8 @@ export async function runOneShot<S extends TSchema>(
   const mask = (text: string) => maskDeep(text, secrets) as string;
   const before = countLlmCallsForJob(db, req.jobId);
   const requests = () => countLlmCallsForJob(db, req.jobId) - before;
-  const model = config.models[req.role];
+  const modelRole = req.modelRole ?? req.role;
+  const model = config.models[modelRole] ?? "";
 
   let runId = 0;
   let writer: TraceWriter | undefined;
@@ -134,7 +139,7 @@ export async function runOneShot<S extends TSchema>(
         gate,
         { jobId: req.jobId, phase: req.phase, role: req.role },
         {
-          role: req.role,
+          role: modelRole,
           systemPrompt: req.systemPrompt,
           messages: history,
           ...(req.signal ? { signal: req.signal } : {}),

@@ -15,6 +15,7 @@
       "!.specify",
       "!.claude",
       "!.workshop",
+      "!evals/cases/*/setup",
       "!pnpm-lock.yaml"
     ]
   },

@@ -1,0 +1,7 @@
+work_type = "bugfix"
+project = "projects/inventory"
+check_commands = ['node --test "test/**/*.test.ts"', "node scripts/lint.ts"]
+
+[grader]
+commands = ["node --test .eval/quantity-spec.test.ts"]
+timeout_seconds = 300

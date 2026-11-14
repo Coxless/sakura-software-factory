@@ -190,6 +190,39 @@ describe("runPipeline（US4）", () => {
     ).toHaveLength(2);
   });
 
+  test("lastJudge: 最後に検査役へ渡した回・diff・テスト結果（012）", async () => {
+    const t = setup([plan(), write(), done(), verdict(FAIL), done("直しました"), verdict(PASS)]);
+    const result = await runPipeline(t.deps, t.input);
+    expect(result.lastJudge?.round).toBe(2);
+    expect(result.lastJudge?.diff).toBe(result.diff);
+    expect(result.lastJudge?.checks).not.toBe("");
+    // 検査役に渡したテスト結果の要約と同じ文字列
+    expect(JSON.stringify(t.env.gate.fake.requests.at(-1)?.messages)).toContain(
+      JSON.stringify(result.lastJudge?.checks).slice(1, 20),
+    );
+  });
+
+  test("lastJudge: 判定まで進まなければ undefined", async () => {
+    const t = setup([plan(), write(), done(), done()], {
+      config: { limits: { judge_retries: 0 }, pipeline: { max_check_feedbacks: 1 } },
+      exec: () => ({ exitCode: 1, output: "FAIL" }),
+    });
+    const result = await runPipeline(t.deps, t.input);
+    expect(result.lastJudge).toBeUndefined();
+  });
+
+  test("lastJudge: 1回目は判定・2回目はテスト失敗 → round 1 のまま", async () => {
+    let calls = 0;
+    const t = setup([plan(), write(), done(), verdict(FAIL), done(), done()], {
+      config: { limits: { judge_retries: 1 }, pipeline: { max_check_feedbacks: 1 } },
+      exec: () => (++calls === 1 ? {} : { exitCode: 1, output: "FAIL" }),
+    });
+    const result = await runPipeline(t.deps, t.input);
+    expect(result.outcome).toBe("rejected");
+    expect(result.rounds[1]?.reason).toBe("checks_failed");
+    expect(result.lastJudge?.round).toBe(1);
+  });
+
   test("何も変えずに完了 → 検査役を呼ばずに no_changes", async () => {
     const t = setup([plan(), done()], { config: { limits: { judge_retries: 0 } } });
     const result = await runPipeline(t.deps, t.input);

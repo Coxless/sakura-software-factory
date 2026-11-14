@@ -115,6 +115,11 @@ export interface PipelineResult {
   error?: string;
   /** 軌跡のファイルの絶対パス */
   tracePath: string;
+  /**
+   * 最後に検査役へ渡した入力（判定まで進まなければ undefined）。012 の回帰評価で比較用の検査役に同じ入力を渡すために使う。
+   * diff はマスクしない（diff と同じ扱い）
+   */
+  lastJudge?: { round: number; diff: string; checks: string };
 }
 
 const EMPTY_STAT: DiffStat = { files: 0, insertions: 0, deletions: 0 };
@@ -200,6 +205,7 @@ export async function runPipeline(
   let reason = "";
   let diff = "";
   let diffStat: DiffStat = { ...EMPTY_STAT };
+  let lastJudge: PipelineResult["lastJudge"];
 
   const run = async (): Promise<{ outcome: PipelineOutcome; error?: string }> => {
     // 開始前の検査（LLM を呼ばない）
@@ -400,6 +406,8 @@ export async function runPipeline(
           return { outcome: abortReason() };
         }
         phase("judging", round);
+        const checksText = checksSummary(lastChecks);
+        lastJudge = { round, diff, checks: checksText };
         const judged = await judge(
           { gate, now },
           {
@@ -408,7 +416,7 @@ export async function runPipeline(
             ...(instruction === "" ? {} : { instruction }),
             planText,
             diff,
-            checks: checksSummary(lastChecks),
+            checks: checksText,
             signal: controller.signal,
             abortReason,
           },
@@ -494,6 +502,7 @@ export async function runPipeline(
     diffStat,
     ...(maskedError === undefined ? {} : { error: maskedError }),
     tracePath,
+    ...(lastJudge === undefined ? {} : { lastJudge }),
   };
 }
 

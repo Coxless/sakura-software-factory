@@ -32,8 +32,17 @@ export interface JudgeInput extends VerifierInput {
   abortReason?: () => "timeout" | "aborted";
 }
 
+export interface JudgeOptions {
+  /** true なら [models].verifier_alt で、工程名 judge_alt として呼ぶ（012 の検査役の比較）。役割は verifier のまま */
+  alt?: boolean;
+}
+
 /** 判定する。合否は verdict の値だけで決める。例外は投げない */
-export function judge(deps: OneShotDeps, input: JudgeInput): Promise<OneShotOutcome<Verdict>> {
+export function judge(
+  deps: OneShotDeps,
+  input: JudgeInput,
+  options: JudgeOptions = {},
+): Promise<OneShotOutcome<Verdict>> {
   const { config } = deps.gate;
   const message = buildVerifierMessage(input, {
     max_issue_chars: config.implementer.max_issue_chars,
@@ -43,8 +52,9 @@ export function judge(deps: OneShotDeps, input: JudgeInput): Promise<OneShotOutc
   });
   return runOneShot(deps, {
     jobId: input.jobId,
-    phase: "judge",
+    phase: options.alt ? "judge_alt" : "judge",
     role: "verifier",
+    ...(options.alt ? { modelRole: "verifier_alt" as const } : {}),
     schema: VerdictSchema,
     systemPrompt: VERIFIER_SYSTEM_PROMPT,
     userMessage: message.text,

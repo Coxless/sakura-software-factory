@@ -126,6 +126,8 @@ export const FactoryConfigSchema = Type.Object(
         trace_dir: Type.String({ minLength: 1, default: "data/traces" }),
         /** ジョブごとの作業ディレクトリの置き場所（007）。作業場から bind mount できる場所にする */
         work_dir: Type.String({ minLength: 1, default: "data/work" }),
+        /** 回帰評価の結果のファイルの置き場所（012） */
+        eval_dir: Type.String({ minLength: 1, default: "data/evals" }),
       },
       { ...strict, default: {} },
     ),
@@ -392,6 +394,7 @@ export function parseConfig(
   config.storage.database_path = resolve(baseDir, config.storage.database_path);
   config.storage.trace_dir = resolve(baseDir, config.storage.trace_dir);
   config.storage.work_dir = resolve(baseDir, config.storage.work_dir);
+  config.storage.eval_dir = resolve(baseDir, config.storage.eval_dir);
   return deepFreeze(config);
 }
 
