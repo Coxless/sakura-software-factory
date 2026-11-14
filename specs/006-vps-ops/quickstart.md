@@ -78,6 +78,6 @@ docker ps -a --filter label=sakura-factory.rehearsal=1   # → 何も出ない
 docker volume ls --filter label=sakura-factory.rehearsal=1  # → 何も出ない
 ```
 
-## 5. VPS解禁の日（2026-12-03）
+## 5. VPS解禁の日（日付は `docs/実装計画.md` 3章）
 
 `deploy/README.md` を上から流す。予行演習との違いは、取得元が GitHub、`CADDY_TLS` がメールアドレス、ドメインが本物、SSH の設定を飛ばさないことだけ。
