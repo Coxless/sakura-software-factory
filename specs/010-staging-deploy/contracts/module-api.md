@@ -12,6 +12,7 @@ getDefaultBranchHead(req: { repo: string }): Promise<{ branch: string; sha: stri
 - 本物（`client.ts`）: `GET /repos/{owner}/{repo}/commits/{sha}/pulls` の中から `merged_at` があり `merge_commit_sha === sha` のもの。`GET /repos/{owner}/{repo}` の `default_branch` と `GET /repos/{owner}/{repo}/branches/{branch}` の `commit.sha`
 - 偽物（`testing.ts`）: `FakePullRequest` に `mergeCommitSha` を足し、`mergePullRequest(number, mergeCommitSha?)` で入れる。`options.defaultBranchHead` で先頭を決める
 - revert PR は既存の `createPullRequest`（`draft: false`）を使う
+- `PullRequestState` に `mergeCommitSha: string | null`（マージ済みならマージ commit、未マージは null）を足す。本物は `merged_at` があるときだけ `merge_commit_sha` を入れる（未マージの値は試しのマージ commit なので使わない）。実行器は `findMergedPullRequest` が見つけられないときに、待っているジョブの PR をこれで確かめる
 
 ## 2. `src/github/events.ts`
 

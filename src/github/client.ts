@@ -168,6 +168,8 @@ export function createGitHubClient(options: { appId: string; privateKey: string 
         draft: data.draft === true,
         autoMerge: data.auto_merge !== null && data.auto_merge !== undefined,
         headSha: data.head.sha,
+        // 未マージの PR の merge_commit_sha は試しのマージ commit なので使わない
+        mergeCommitSha: data.merged_at !== null ? (data.merge_commit_sha ?? null) : null,
         body: data.body ?? "",
       };
     },

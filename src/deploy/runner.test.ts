@@ -243,6 +243,35 @@ describe("runDeployment: 成功（US1）", () => {
     expect(ctx.notes(j.id)).toEqual(["merged", "deploy_started", "deploy_result"]);
   });
 
+  test.each([
+    ["merged", ["merged→deploying", "deploying→deployed"]],
+    ["ci_waiting", ["ci_waiting→merged", "merged→deploying", "deploying→deployed"]],
+  ] as const)(
+    "commit から PR を引く索引が空でも、%s のジョブの PR を直接引いて結び付く",
+    async (status, expected) => {
+      const ctx = await setup();
+      const j = ctx.mergedJob(status);
+      // マージの直後は GET /commits/{sha}/pulls が空を返すことがある（2026-11-28 に本番で起きた）
+      ctx.github.findMergedPullRequest = async () => undefined;
+      const d = ctx.queue();
+      expect(await runDeployment(ctx.deps, d, signal())).toEqual({ kind: "succeeded" });
+      expect(getDeployment(ctx.db, d.id)?.job_id).toBe(j.id);
+      expect(ctx.job(j.id)?.status).toBe("deployed");
+      expect(ctx.states(j.id)).toEqual(expected);
+    },
+  );
+
+  test("索引が空で、待っているジョブの PR のマージ commit が違えば、ジョブなしで続ける", async () => {
+    const ctx = await setup();
+    const j = ctx.mergedJob();
+    ctx.github.mergePullRequest(5, "d".repeat(40));
+    ctx.github.findMergedPullRequest = async () => undefined;
+    const d = ctx.queue();
+    expect(await runDeployment(ctx.deps, d, signal())).toEqual({ kind: "succeeded" });
+    expect(getDeployment(ctx.db, d.id)?.job_id).toBeNull();
+    expect(ctx.job(j.id)?.status).toBe("merged");
+  });
+
   test("人間の push（PR なし）はジョブなしで succeeded", async () => {
     const ctx = await setup();
     const d = ctx.queue();
