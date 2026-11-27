@@ -128,7 +128,7 @@ description: "Task list for 007 github-intake"
 - [X] T030 [P] `docs/design/03` の4章 #1・5章（GitHub 連携・データ・キュー）・8章と `04` の2章 層1を、plan.md の「設計ドキュメントとの差分」どおりに直す
 - [X] T031 `pnpm run check`・`pnpm run secrets:scan`・`pnpm run deploy:lint` を通す。記録したペイロードに実在のアカウント名やメールアドレスがないことを `git grep` で確かめる。`git grep -l octokit -- src ':!src/github/'` が空であること（FR-030）を確かめる
 - [X] T032 quickstart.md の2章を手で実行する（署名なしで `401`、偽の App ID で `500`）。結果を journal に書く
-- [ ] T033 quickstart.md の3章（テスト用のリポジトリと本物の GitHub App）を1回実行し、結果を journal に書く（M2 の作業。GitHub App の作成は運用者が行う）。AI解禁の前は `[models].verifier` を `implementer` と同じにして、LLM を呼ばずに 2行目の報告まで確かめる（解禁後にもう1回）
+- [X] T033 quickstart.md の3章（テスト用のリポジトリと本物の GitHub App）を1回実行し、結果を journal に書く（M2 の作業。GitHub App の作成は運用者が行う）。AI解禁の前は `[models].verifier` を `implementer` と同じにして、LLM を呼ばずに 2行目の報告まで確かめる（解禁後にもう1回）（解禁後の確認は 2026-11-28 に本番で実施: `docs/journal/2026-11-28-本番で通し.md`）
 - [X] T034 [P] `src/pipeline/run.ts` の `runPipelineInSandbox` の説明のコメント（007 の `failureKind` への対応）を research R2 の表（`rejected` → `judge_rejected`、`aborted` → `stopped`、`passed` → `shipping_not_available`）に合わせて直す。コードは変えない
 
 ---
