@@ -31,6 +31,7 @@ import {
 } from "../queue/deployments.ts";
 import { type Deployment, type Job, jobEvents, jobs } from "../queue/schema.ts";
 import { type HealthResult, waitHealthy } from "./health.ts";
+import { makeReadableByOthers } from "./readable.ts";
 import { healthUrlFor, imageTagFor, type StagingRuntime } from "./staging.ts";
 
 export interface DeployerDeps extends ReportDeps {
@@ -413,6 +414,7 @@ export async function runDeployment(
     }
 
     try {
+      makeReadableByOthers(dir);
       await staging.build({ dir, image: d.image_tag, signal });
     } catch (error) {
       if (signal.aborted) return await interrupted(deps, d, job);
