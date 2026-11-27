@@ -56,6 +56,24 @@ export function extractJsonObject(text: string): Record<string, unknown> | undef
   return undefined;
 }
 
+/**
+ * 出力の最初の `{` から最後の `}` までが JSON として読めなければ、その理由を返す（読めれば・`{` がなければ undefined）。
+ * 文字列の中の `"` をエスケープし忘れると、全体は読めず、中の小さなオブジェクトだけが取り出されて
+ * 「必須の項目がありません」という見当違いの再要求になる（2026-11-28 に本番で起きた）。それを避けるために使う
+ */
+export function jsonSyntaxError(text: string): string | undefined {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end <= start) return undefined;
+  try {
+    JSON.parse(text.slice(start, end + 1));
+    return undefined;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return `/: JSON として読めません（${reason}）。文字列の値の中の " は \\" とエスケープしてください`;
+  }
+}
+
 export type Validation<T> = { ok: true; value: T } | { ok: false; errors: string[] };
 
 /** スキーマで検証し、合わなければ「パス: 理由」の一覧を返す。余分な項目は許す（スキーマで禁じない） */

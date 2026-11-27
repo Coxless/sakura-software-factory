@@ -21,6 +21,7 @@ export const PLANNER_SYSTEM_PROMPT = `あなたはソフトウェアファクト
 
 ## 出力
 次の形の JSON オブジェクトだけを返します。説明文やコードブロックの囲みは付けません。
+文字列の値の中に「"」を書くときは「\\"」とエスケープします（Issue に書かれた JSON を写すときも同じ）。
 {"summary": "…", "steps": ["…", "…"], "acceptance_criteria": ["…"], "work_type": "bugfix"}`;
 
 export interface PlannerInput {

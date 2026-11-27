@@ -1,6 +1,6 @@
 import Type from "typebox";
 import { describe, expect, test } from "vitest";
-import { extractJsonObject, repairMessage, validate } from "./structured.ts";
+import { extractJsonObject, jsonSyntaxError, repairMessage, validate } from "./structured.ts";
 
 describe("extractJsonObject", () => {
   test("素の JSON", () => {
@@ -68,6 +68,19 @@ describe("validate", () => {
   test("オブジェクトでなければ / の誤り", () => {
     const result = validate(Schema, undefined);
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("jsonSyntaxError", () => {
+  test("読める・JSON がなければ undefined", () => {
+    expect(jsonSyntaxError('説明 {"a": "b"} 以上')).toBeUndefined();
+    expect(jsonSyntaxError("JSON なし")).toBeUndefined();
+  });
+
+  test('文字列の中の " をエスケープし忘れたら、理由とエスケープの指示を返す', () => {
+    const error = jsonSyntaxError('{"summary": "{"error": "x"} を返す"}');
+    expect(error).toMatch(/^\/: JSON として読めません（.+）/);
+    expect(error).toContain('\\"');
   });
 });
 
