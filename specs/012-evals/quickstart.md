@@ -44,3 +44,5 @@ SAKURA_AI_API_KEY=... pnpm run eval:dev -- --allow-sakura --max-requests 300
 ```
 
 期待: `--- verifiers ---` に Qwen3.6 と gemma-4 の一致率・誤合格・誤不合格・トークン・応答時間が並ぶ。
+
+VPS で流すときは、本番の DB を使わない。評価のジョブは終わりの状態にならないので、`/status` の進行中に残り、ファクトリーの次の起動で `failed`（`restarted`）に数えられる。`/etc/sakura-factory/factory.toml` を写した設定で `database_path`・`trace_dir`・`work_dir`・`eval_dir` を別の場所にし、使ったリクエスト数を本番の `[budget].monthly_requests` から引く。手順の例は `docs/journal/2026-11-28-回帰評価をさくらで.md`。
