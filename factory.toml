@@ -3,19 +3,19 @@
 # 項目の説明: specs/001-foundation/contracts/factory-toml.md
 
 [llm]
-# さくらのAI Engine の OpenAI 互換エンドポイント（仮の値。002 のスモークテストで確かめて直す）
+# さくらのAI Engine の OpenAI 互換エンドポイント（2026-11-28 に GET /v1/models で確かめた）
 base_url = "https://api.ai.sakura.ad.jp/v1"
 max_attempts = 3                # 最初の1回を含む試行回数の上限（1〜10）
 max_retry_delay_seconds = 60    # サーバーの待ち時間の指示がこれを超えたら再試行しない（1〜600）
 request_timeout_seconds = 300   # 1回の試行の時間の上限（10〜1800）
 
 [models]
-# モデル名（仮の値。002 で実機の正確な名前に直す）
-planner = "Kimi-K2.7-Code"     # 計画役（ツールなし・1回呼び出し）
-implementer = "Kimi-K2.7-Code" # 実装役
-verifier = "Qwen3.6"           # 検査役（実装役とは別系統）
-# verifier_alt = "gemma-4"     # 検査役の比較用（012 の pnpm run eval:dev だけで使う。implementer と同じ値は不可）
-fallback = "gpt-oss-120b"      # プレビューモデル停止時の退避先
+# モデル名（2026-11-28 に GET /v1/models で確かめた ID。プレビューのモデルは preview/ が付く）
+planner = "preview/Kimi-K2.7-Code"     # 計画役（ツールなし・1回呼び出し）
+implementer = "preview/Kimi-K2.7-Code" # 実装役
+verifier = "preview/Qwen3.6-35B-A3B"   # 検査役（実装役とは別系統）
+# verifier_alt = "preview/gemma-4-31B-it" # 検査役の比較用（012 の pnpm run eval:dev だけで使う。implementer と同じ値は不可）
+fallback = "gpt-oss-120b"              # プレビューモデル停止時の退避先
 
 [budget]
 monthly_requests = 3000   # 月のリクエスト上限

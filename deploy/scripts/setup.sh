@@ -146,7 +146,9 @@ if [[ "$FACTORY_SKIP_SSH" == "1" ]]; then
   printf 'SSH の設定を飛ばしました（FACTORY_SKIP_SSH=1）\n'
 else
   # 締め出しを防ぐため、鍵が1つ以上あるのを確かめてからパスワードでのログインを止める
-  if ! cat /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys 2>/dev/null | grep -qE '^(ssh-|ecdsa-|sk-)'; then
+  # cat | grep にすると、pipefail のもとでは存在しないファイル（鍵のない /root など）で cat が失敗し、鍵があっても止まる。
+  # grep -q は一致があれば、読めないファイルがあっても 0 を返す
+  if ! grep -qsE '^(ssh-|ecdsa-|sk-)' /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; then
     die "authorized_keys に SSH の鍵がありません。鍵でログインできるようにしてから流し直してください"
   fi
   # sshd は同じ設定名なら先に読んだ値を使い、sshd_config.d は名前順に読む。
