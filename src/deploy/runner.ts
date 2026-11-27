@@ -5,7 +5,7 @@
  */
 import { readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { fetchCommit, type RevertSkipReason, revertRange } from "../github/git.ts";
 import { markMerged } from "../pipeline/ci.ts";
 import {
@@ -84,6 +84,34 @@ function getJob(deps: ReportDeps, id: number): Job | undefined {
 }
 
 /**
+ * commit から PR を引く索引（`GET /commits/{sha}/pulls`）はマージの直後に空を返すことがある（research R3）。
+ * そのときは、このリポジトリで CI 待ち・マージ済みのジョブの PR を直接引き、マージ commit が一致するものを返す
+ */
+async function findWaitingJobPullRequest(
+  deps: DeployerDeps,
+  d: Deployment,
+): Promise<number | undefined> {
+  const candidates = deps.db
+    .select({ pr_number: jobs.pr_number })
+    .from(jobs)
+    .where(
+      and(
+        sql`lower(${jobs.repo}) = lower(${d.repo})`,
+        inArray(jobs.status, ["ci_waiting", "merged"]),
+        isNotNull(jobs.pr_number),
+      ),
+    )
+    .orderBy(desc(jobs.id))
+    .all();
+  for (const { pr_number } of candidates) {
+    if (pr_number === null) continue;
+    const pr = await deps.github.getPullRequest({ repo: d.repo, number: pr_number });
+    if (pr.merged && pr.mergeCommitSha === d.commit_sha) return pr_number;
+  }
+  return undefined;
+}
+
+/**
  * push の先頭の commit をジョブに結び付ける（research R3）。ジョブが merged（ci_waiting でマージ済みなら merged に進めてから）なら
  * deploying に移して返す。結び付いたが進めないジョブ・結び付かない push は undefined。例外を投げない
  */
@@ -92,7 +120,9 @@ async function linkJob(deps: DeployerDeps, d: Deployment): Promise<Job | undefin
   const now = deps.now ?? Date.now;
   let job: Job | undefined;
   try {
-    const prNumber = await github.findMergedPullRequest({ repo: d.repo, sha: d.commit_sha });
+    const prNumber =
+      (await github.findMergedPullRequest({ repo: d.repo, sha: d.commit_sha })) ??
+      (await findWaitingJobPullRequest(deps, d));
     if (prNumber === undefined) return undefined;
     job = db
       .select()

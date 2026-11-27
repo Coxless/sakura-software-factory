@@ -76,6 +76,8 @@ export interface PullRequestState {
   /** auto-merge が有効か */
   autoMerge: boolean;
   headSha: string;
+  /** マージ済みならマージ commit、そうでなければ null（010。commit から PR を引く索引の遅れを補う） */
+  mergeCommitSha: string | null;
   body: string;
 }
 

@@ -22,6 +22,7 @@ spec の Clarifications で決めた方針を、実装の手段に落とした�
 ## R3. ジョブとの結び付け
 
 - **決定**: 実行器が取り出した直後に、`GitHubPort.findMergedPullRequest({ repo, sha })`（`GET /repos/{owner}/{repo}/commits/{sha}/pulls` から、マージ済みで `merge_commit_sha` がその commit の PR の番号）を呼び、同じリポジトリ・同じ PR の番号のジョブを探す
+  - 見つからなければ、同じリポジトリで `ci_waiting`・`merged` のジョブの PR を `getPullRequest` で引き、マージ済みでマージ commit（`mergeCommitSha`）がその commit のものを使う。`GET /commits/{sha}/pulls` はマージの直後に空を返すことがある（本番で、マージの約0.5秒後の push で起きた）
   - ジョブが `ci_waiting` → PR の状態を取り直し（`getPullRequest`）、マージ済みなら 009 の `markMerged`（`ci_waiting` → `merged`、`merged` の記録、PR の本文の CI の欄）を呼んでから進む
   - ジョブが `merged` → `merged` → `deploying`
   - ジョブが終わりの状態など → 状態は変えず、`deployments.job_id` だけ入れる

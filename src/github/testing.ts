@@ -188,6 +188,7 @@ export class FakeGitHub implements GitHubPort {
       draft: pr.draft,
       autoMerge: pr.autoMerge,
       headSha: pr.headSha,
+      mergeCommitSha: pr.merged ? (pr.mergeCommitSha ?? null) : null,
       body: pr.body,
     };
   }
