@@ -110,6 +110,19 @@ describe("runOneShot", () => {
     s.gate.close();
   });
 
+  test('文字列の中の " をエスケープし忘れた出力は、中の別のオブジェクトではなく構文の誤りとして再要求する', async () => {
+    // 2026-11-28 に本番で起きた形: Issue に書かれた JSON をそのまま文字列に写した
+    const broken = '{"answer": "400 と {"error": "text is required"} を返す"}';
+    const s = setup([{ text: broken }, { text: '{"answer": "ok"}' }]);
+    const out = await runOneShot({ gate: s.gate.deps }, s.request());
+    expect(out).toMatchObject({ kind: "ok", requests: 2 });
+    const second = s.gate.fake.requests[1]?.messages as { role: string; content: unknown }[];
+    const repair = JSON.stringify(second.at(-1)?.content);
+    expect(repair).toContain("JSON として読めません");
+    expect(repair).not.toContain("必須");
+    s.gate.close();
+  });
+
   test("2回とも壊れる → invalid、3回目を呼ばない", async () => {
     const s = setup([{ text: "JSON なし" }, { text: '{"answer": 1}' }, { text: '{"answer":"x"}' }]);
     const out = await runOneShot({ gate: s.gate.deps }, s.request());

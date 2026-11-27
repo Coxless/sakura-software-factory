@@ -22,6 +22,7 @@ export const VERIFIER_SYSTEM_PROMPT = `あなたはソフトウェアファク�
 
 ## 出力
 次の形の JSON オブジェクトだけを返します。説明文やコードブロックの囲みは付けません。
+文字列の値の中に「"」を書くときは「\\"」とエスケープします（Issue に書かれた JSON を写すときも同じ）。
 {"verdict": "pass" または "fail", "reasons": "判定の理由", "criteria": [{"criterion": "受け入れ条件", "met": true, "note": "根拠"}], "fixes": ["直すべき点"]}`;
 
 export interface VerifierInput {

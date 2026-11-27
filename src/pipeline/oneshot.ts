@@ -3,7 +3,12 @@
  * （005 research R1・R2・R9、原則 III・V）。Pi に依存しない。例外を投げない。
  */
 import type { Static, TSchema } from "typebox";
-import { extractJsonObject, repairMessage, validate } from "../harness/structured.ts";
+import {
+  extractJsonObject,
+  jsonSyntaxError,
+  repairMessage,
+  validate,
+} from "../harness/structured.ts";
 import { type CompletionMessage, completeOnce } from "../llm/complete.ts";
 import { apiKeyEnvOf, type ModelRole } from "../llm/provider.ts";
 import type { GateDeps } from "../llm/stream.ts";
@@ -167,10 +172,13 @@ export async function runOneShot<S extends TSchema>(
         },
       });
       const extracted = extractJsonObject(result.text);
-      const checked =
+      const validated =
         extracted === undefined
           ? ({ ok: false, errors: [] } as const)
           : validate(req.schema, extracted);
+      // 全体が JSON として読めないときは、中から拾った別のオブジェクトの誤りではなく構文の誤りを伝える
+      const syntax = validated.ok ? undefined : jsonSyntaxError(result.text);
+      const checked = syntax === undefined ? validated : ({ ok: false, errors: [syntax] } as const);
       write({
         type: "validation",
         ok: checked.ok,
