@@ -35,7 +35,7 @@ FACTORY_CONFIG=factory.dev.toml GEMINI_API_KEY=... pnpm run eval:dev -- --max-re
 pnpm run eval:compare -- data/evals-dev/<前>.json data/evals-dev/<後>.json
 ```
 
-## 5. 12月の枠（さくら）での評価と検査役の比較
+## 5. さくらの枠での評価と検査役の比較
 
 `factory.toml` の `[models].verifier_alt = "gemma-4"` を有効にしてから:
 
