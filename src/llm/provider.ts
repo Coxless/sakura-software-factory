@@ -66,9 +66,12 @@ export const DEFAULT_SAKURA_COMPAT: OpenAICompletionsCompat = {
   maxTokensField: "max_tokens",
 };
 
-/** さくらの公開値が分からないため仮の値で始める。スモークテストで分かったら直す */
+/**
+ * さくらの公開値が分からないため仮の値で始めた。出力の上限は推論（Qwen3.6 は応答の reasoning 欄）の分も数える。
+ * 8192 では検査役の再要求で推論だけで使い切り、本文が空になった（2026-11-28 job 36）ので 16384 にした
+ */
 const CONTEXT_WINDOW = 131072;
-const MAX_TOKENS = 8192;
+const MAX_TOKENS = 16384;
 
 /** 役割に加えて、スモークテストで選べる設定の項目 */
 export type ModelRole = LlmRole | "verifier_alt" | "fallback";

@@ -110,6 +110,7 @@ const DESCRIPTIONS: Record<FailureKind, string> = {
   pr_closed: "PR がマージされずに閉じられました",
   deploy_failed:
     "ステージングへのデプロイ（取得・ビルド）に失敗しました。ステージングは前の版のままです",
+  handed_back: "実装役が作業を止めて、判断を人に返しました。変更は push していません",
 };
 
 describe("renderFailureReport", () => {

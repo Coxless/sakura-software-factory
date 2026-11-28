@@ -34,6 +34,8 @@ export const FAILURE_KINDS = [
   "pr_closed",
   // 010
   "deploy_failed",
+  // 実装役が hand_back で止めた
+  "handed_back",
 ] as const;
 export type FailureKind = (typeof FAILURE_KINDS)[number];
 
@@ -75,6 +77,8 @@ function describeKind(config: FactoryConfig, kind: FailureKind): string {
       return "PR がマージされずに閉じられました";
     case "deploy_failed":
       return "ステージングへのデプロイ（取得・ビルド）に失敗しました。ステージングは前の版のままです";
+    case "handed_back":
+      return "実装役が作業を止めて、判断を人に返しました。変更は push していません";
   }
 }
 

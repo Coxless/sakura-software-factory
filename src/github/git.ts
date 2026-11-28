@@ -62,7 +62,7 @@ function errorText(error: unknown): string {
 }
 
 /**
- * インストールトークンで既定のブランチを浅く取得し、作業ブランチを作る（research R8、FR-018・FR-019）。
+ * インストールトークンで既定のブランチを全履歴で取得し、作業ブランチを作る（research R8、FR-018・FR-019）。
  * トークンは clone の子プロセスの環境変数（GIT_CONFIG_COUNT・GIT_CONFIG_KEY_0・GIT_CONFIG_VALUE_0）でだけ渡す。
  * コマンドラインの引数（/proc/<pid>/cmdline から見える）・リモートの URL・.git/config には入れない。
  */
@@ -89,8 +89,7 @@ export async function cloneForJob(req: {
       [
         "clone",
         "--quiet",
-        "--depth",
-        "1",
+        // 全履歴を取る。作業場にはネットワークがなく .git は読み取り専用なので、あとから深くできない（CHANGELOG など履歴を読む作業のため）
         "--single-branch",
         "--branch",
         req.defaultBranch,
