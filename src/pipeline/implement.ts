@@ -12,6 +12,8 @@ import {
   type AgentTool,
 } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
+import Type from "typebox";
+import Value from "typebox/value";
 import type { ToolDetails, ToolResult } from "../harness/compose.ts";
 import {
   buildInitialContext,
@@ -44,6 +46,21 @@ export type { Feedback } from "../harness/context.ts";
 export type ImplementerOutcome = AgentRunOutcome;
 
 export const IMPLEMENT_PHASE = "implement";
+
+/** 作業を止めて人に返すツール（作業場では動かさず、ホストで理由を受け取るだけ） */
+export const HAND_BACK_TOOL = "hand_back";
+const HAND_BACK_MAX_CHARS = 2000;
+const HandBackParams = Type.Object({
+  reason: Type.String({ minLength: 1, description: "止めた理由。Issue にそのまま投稿される" }),
+});
+
+/** hand_back の理由を取り出す。形が合わなければ undefined */
+function handBackReasonOf(params: unknown): string | undefined {
+  if (!Value.Check(HandBackParams, params)) return undefined;
+  const reason = params.reason.trim();
+  if (reason === "") return undefined;
+  return reason.length > HAND_BACK_MAX_CHARS ? `${reason.slice(0, HAND_BACK_MAX_CHARS)}…` : reason;
+}
 
 export interface ImplementerInput {
   jobId: number;
@@ -89,6 +106,8 @@ export interface ImplementerResult {
   blockedCalls: number;
   /** failed・budget_exceeded のとき（マスク済み） */
   error?: string;
+  /** handed_back のとき: 実装役が書いた止めた理由（マスク済み） */
+  handBackReason?: string;
   /** agent_runs.id（行を作れなかったら 0） */
   runId: number;
   attempt: number;
@@ -155,6 +174,7 @@ export function startImplementer(deps: ImplementerDeps, input: ImplementerInput)
   let steers = 0;
   let completionChecks = 0;
   let completionError: unknown;
+  let handBackReason: string | undefined;
   const pendingSteers: string[] = [];
 
   const write = (record: TraceRecordBody) => {
@@ -254,12 +274,36 @@ export function startImplementer(deps: ImplementerDeps, input: ImplementerInput)
       });
       if (traceError !== undefined) throw traceError;
 
+      const handBack: AgentTool = {
+        name: HAND_BACK_TOOL,
+        label: "作業を止めて人に返す",
+        description:
+          "作業を止めて、判断を人に返す。Issue の指示どおりに止めるとき（「〜なら報告して止めて」）や、この作業場では依頼を満たせないと分かったとき（必要な情報・履歴・ネットワークがない）だけに使う。reason は Issue にそのまま投稿される。呼ぶとそこで作業が終わり、変更は push されない",
+        parameters: HandBackParams,
+        executionMode: "sequential",
+        execute: async (_id: string, params: unknown) => {
+          const reason = handBackReasonOf(params);
+          if (reason === undefined) {
+            return {
+              content: [{ type: "text", text: "reason に止めた理由を書いてください" }],
+              details: { tool: HAND_BACK_TOOL, error: "invalid_args" },
+              isError: true,
+            };
+          }
+          handBackReason = reason;
+          return {
+            content: [{ type: "text", text: "作業を止めました。これ以上の操作は要りません" }],
+            details: { tool: HAND_BACK_TOOL },
+          };
+        },
+      } as unknown as AgentTool;
+
       const created = new Agent({
         initialState: {
           systemPrompt: initial.systemPrompt,
           model,
           thinkingLevel: "off",
-          tools: input.workspace.tools as unknown as AgentTool[],
+          tools: [...(input.workspace.tools as unknown as AgentTool[]), handBack],
         },
         streamFn: createGatedStreamFn(gate, {
           jobId: input.jobId,
@@ -291,6 +335,11 @@ export function startImplementer(deps: ImplementerDeps, input: ImplementerInput)
           }
         },
         beforeToolCall: async ({ toolCall, args }, signal) => {
+          // hand_back は作業場に触れないので検査しない。止めたあとのツールは実行しない
+          if (handBackReason !== undefined) {
+            return { block: true, reason: "作業は止めました。これ以上の操作は要りません" };
+          }
+          if (toolCall.name === HAND_BACK_TOOL) return undefined;
           const decision = await input.workspace.guard({ toolName: toolCall.name, args }, signal);
           if (!decision) return undefined;
           counters.blockedCalls += 1;
@@ -307,6 +356,18 @@ export function startImplementer(deps: ImplementerDeps, input: ImplementerInput)
         afterToolCall: async ({ toolCall, args, result: executed, isError }) => {
           counters.toolCalls += 1;
           const details = (executed.details ?? { tool: toolCall.name }) as ToolDetails;
+          if (toolCall.name === HAND_BACK_TOOL) {
+            tracker.onToolResult(details);
+            write({
+              type: "tool_result_meta",
+              toolCallId: toolCall.id,
+              toolName: toolCall.name,
+              originalChars: toolResultChars(executed),
+              details:
+                handBackReason === undefined ? details : { ...details, reason: handBackReason },
+            });
+            return undefined;
+          }
           const original: ToolResult = {
             content: executed.content.filter(
               (part): part is { type: "text"; text: string } => part.type === "text",
@@ -335,6 +396,8 @@ export function startImplementer(deps: ImplementerDeps, input: ImplementerInput)
         finishTurn: async ({ message, toolResults }, signal) => {
           if (message.stopReason === "error" || message.stopReason === "aborted") return undefined;
           tracker.onTurnEnd();
+          // 人に返したら、工程内テストも上限の判定もせずに終わる
+          if (handBackReason !== undefined) return { action: "end" };
           let continues = toolResults.length > 0 || created.hasQueuedMessages();
           let injected = false;
           // 完了を告げたとき: 005 の工程内テスト。失敗なら同じ会話に差し込んで続ける（research R4）
@@ -397,6 +460,8 @@ export function startImplementer(deps: ImplementerDeps, input: ImplementerInput)
       if (traceError !== undefined) {
         outcome = "failed";
         error = `軌跡に書けませんでした: ${errorText(traceError)}`;
+      } else if (handBackReason !== undefined && !userAborted && tracker.reason !== "timeout") {
+        outcome = "handed_back";
       } else if (completionError !== undefined) {
         outcome = "failed";
         error = errorText(completionError);
@@ -436,6 +501,8 @@ export function startImplementer(deps: ImplementerDeps, input: ImplementerInput)
     }
 
     const maskedError = error === undefined ? undefined : mask(error);
+    const maskedHandBack =
+      outcome === "handed_back" && handBackReason !== undefined ? mask(handBackReason) : undefined;
     const summary = {
       outcome,
       turns: stop?.turns ?? 0,
@@ -453,6 +520,7 @@ export function startImplementer(deps: ImplementerDeps, input: ImplementerInput)
       lastMessage,
       truncatedOutput,
       ...(maskedError === undefined ? {} : { error: maskedError }),
+      ...(maskedHandBack === undefined ? {} : { handBackReason: maskedHandBack }),
     });
     if (runId !== 0) {
       try {
@@ -470,6 +538,7 @@ export function startImplementer(deps: ImplementerDeps, input: ImplementerInput)
       lastMessage,
       truncatedOutput,
       ...(maskedError === undefined ? {} : { error: maskedError }),
+      ...(maskedHandBack === undefined ? {} : { handBackReason: maskedHandBack }),
       runId,
       attempt,
       tracePath,

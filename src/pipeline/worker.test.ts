@@ -321,8 +321,15 @@ describe("classifyOutcome", () => {
     ["budget_exceeded", "budget_exceeded"],
     ["timeout", "timeout"],
     ["aborted", "stopped"],
+    ["handed_back", "handed_back"],
   ] as const)("%s → %s", (outcome, kind) => {
     expect(classifyOutcome(result(outcome, { verdict: verdict() })).kind).toBe(kind);
+  });
+
+  test("handed_back は実装役の理由を message と detail に入れる", () => {
+    const out = classifyOutcome(result("handed_back", { reason: "履歴が見えません\n詳しく" }));
+    expect(out).toMatchObject({ kind: "handed_back", message: "履歴が見えません" });
+    expect(out.detail).toBe("履歴が見えません\n詳しく");
   });
 
   test("詳細: rejected は reason、failed は error", () => {

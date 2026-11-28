@@ -704,3 +704,71 @@ describe("SC-010 土台を切り替えるときの範囲", () => {
     }
   });
 });
+
+describe("hand_back（作業を止めて人に返す）", () => {
+  test("hand_back を呼ぶとそのターンで終わり handed_back。工程内テストは呼ばない", async () => {
+    const t = setup({
+      responses: [
+        toolCallResponse("bash", { command: "git log --oneline" }),
+        toolCallResponse("hand_back", { reason: "履歴が1件しか見えないため止めます" }),
+        textResponse("呼ばれないはず"),
+      ],
+    });
+    let checks = 0;
+    const result = await runImplementer(t.deps, {
+      ...t.input,
+      onComplete: async () => {
+        checks += 1;
+        return undefined;
+      },
+    });
+    expect(result).toMatchObject({
+      outcome: "handed_back",
+      handBackReason: "履歴が1件しか見えないため止めます",
+      turns: 2,
+      requests: 2,
+      completionChecks: 0,
+    });
+    expect(checks).toBe(0);
+    expect(t.gate.fake.requests).toHaveLength(2);
+    const row = t.gate.db.select().from(agentRuns).where(eq(agentRuns.id, result.runId)).get();
+    expect(row?.outcome).toBe("handed_back");
+    const end = t.trace().find((r) => r.type === "run_end");
+    expect(end).toMatchObject({ outcome: "handed_back" });
+  });
+
+  test("同じ応答で hand_back のあとのツールは実行しない", async () => {
+    const t = setup({
+      responses: [
+        toolCallsResponse([
+          { name: "hand_back", args: { reason: "条件に当たりました" } },
+          { name: "bash", args: { command: "rm -rf src" } },
+        ]),
+      ],
+    });
+    const result = await runImplementer(t.deps, t.input);
+    expect(result.outcome).toBe("handed_back");
+    expect(t.workspace.commands).toEqual([]);
+  });
+
+  test("reason が空ならエラーを返して続ける", async () => {
+    const t = setup({
+      responses: [toolCallResponse("hand_back", { reason: " " }), textResponse("続けました")],
+    });
+    const result = await runImplementer(t.deps, t.input);
+    expect(result.outcome).toBe("completed");
+    expect(result.handBackReason).toBeUndefined();
+    expect(requestText(t.gate.fake.requests[1] as { messages: unknown[] })).toContain(
+      "reason に止めた理由を書いてください",
+    );
+  });
+
+  test("理由の中の秘密情報は伏せる", async () => {
+    const t = setup({
+      responses: [toolCallResponse("hand_back", { reason: "鍵 test-key-ABCDEF123 が要ります" })],
+    });
+    const result = await runImplementer(t.deps, t.input);
+    expect(result.outcome).toBe("handed_back");
+    expect(result.handBackReason).not.toContain("test-key-ABCDEF123");
+  });
+});

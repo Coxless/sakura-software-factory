@@ -33,7 +33,7 @@ function recordingRunner() {
 }
 
 describe("cloneForJob", () => {
-  test("浅く取得して作業ブランチを作り、トークンを作業ディレクトリに残さない", async () => {
+  test("全履歴を取得して作業ブランチを作り、トークンを作業ディレクトリに残さない", async () => {
     const { baseUrl, root } = await createBareRepo();
     const dir = join(root, "work", "job-3", "repo");
     const { calls, run } = recordingRunner();
@@ -50,7 +50,7 @@ describe("cloneForJob", () => {
     const head = await execa("git", ["-C", dir, "branch", "--show-current"]);
     expect(head.stdout).toBe("agent/issue-7-job-3");
     const shallow = await execa("git", ["-C", dir, "rev-parse", "--is-shallow-repository"]);
-    expect(shallow.stdout).toBe("true");
+    expect(shallow.stdout).toBe("false");
     expect(readFileSync(join(dir, "README.md"), "utf8")).toBe("# demo\n");
 
     const config = readFileSync(join(dir, ".git", "config"), "utf8");
@@ -89,11 +89,10 @@ describe("cloneForJob", () => {
         return { stdout: "", stderr: "" };
       },
     });
+    expect(calls[0]).not.toContain("--depth");
     expect(calls[0]).toEqual(
       expect.arrayContaining([
         "clone",
-        "--depth",
-        "1",
         "--single-branch",
         "--branch",
         "main",

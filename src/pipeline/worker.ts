@@ -93,6 +93,12 @@ export function classifyOutcome(result: PipelineResult): {
       return { kind: "timeout", message: "005 の工程が期限を過ぎました" };
     case "aborted":
       return { kind: "stopped", message: "停止の合図で中断しました" };
+    case "handed_back":
+      return {
+        kind: "handed_back",
+        message: firstLine(result.reason) || "実装役が作業を止めました",
+        detail: result.reason,
+      };
   }
 }
 

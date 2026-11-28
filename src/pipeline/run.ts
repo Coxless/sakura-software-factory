@@ -38,7 +38,9 @@ export type PipelineOutcome =
   | "failed"
   | "budget_exceeded"
   | "timeout"
-  | "aborted";
+  | "aborted"
+  /** 実装役が hand_back で作業を止めた。判定・出荷に進まず、理由を Issue に報告する */
+  | "handed_back";
 
 /** 工程の境目。007 の JobStatus と同じ名前 */
 export type PipelinePhase = "planning" | "implementing" | "testing" | "judging";
@@ -430,6 +432,18 @@ export async function runPipeline(
           break;
       }
 
+      if (implemented.outcome === "handed_back") {
+        const current = await diffSource.diff(input.workdir, base).catch(() => undefined);
+        if (current) {
+          diff = current.diff;
+          diffStat = current.stat;
+          summary.diffStat = current.stat;
+        }
+        reason = implemented.handBackReason ?? "実装役が作業を止めました";
+        endRound("finish");
+        return { outcome: "handed_back" };
+      }
+
       const current = await diffSource.diff(input.workdir, base);
       diff = current.diff;
       diffStat = current.stat;
@@ -571,7 +585,7 @@ function oneShotFailure(
  *
  * Worker での扱い: passed → 008 の出荷の工程（src/pipeline/ship.ts の shipJob）。それ以外は 007 research R2 の分類
  * （src/pipeline/worker.ts の classifyOutcome）: rejected → judge_rejected、failed → pipeline_failed、
- * budget_exceeded・timeout → 同名、aborted → stopped
+ * budget_exceeded・timeout → 同名、aborted → stopped、handed_back → 同名
  */
 export async function runPipelineInSandbox(
   deps: PipelineDeps,

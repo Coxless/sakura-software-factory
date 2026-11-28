@@ -241,6 +241,26 @@ describe("runPipeline（US4）", () => {
     expect(result.rounds[0]?.verdict).toBe("not_judged");
   });
 
+  test("実装役が hand_back → 判定もやり直しもせず handed_back。理由が reason に入る", async () => {
+    const t = setup([
+      plan(),
+      write(),
+      toolCallResponse("hand_back", { reason: "絵文字のテストが今の実装で通りません" }),
+      verdict(PASS),
+    ]);
+    const result = await runPipeline(t.deps, t.input);
+    expect(result.outcome).toBe("handed_back");
+    expect(result.reason).toBe("絵文字のテストが今の実装で通りません");
+    expect(result.rounds).toHaveLength(1);
+    expect(result.rounds[0]).toMatchObject({
+      verdict: "not_judged",
+      checks: { status: "not_run" },
+    });
+    expect(result.diffStat.files).toBe(1);
+    expect(t.models()).not.toContain("verify-model");
+    expect(t.phases.map(([p]) => p)).not.toContain("judging");
+  });
+
   test("実装工程が failed（作業場の異常）→ やり直さず failed", async () => {
     const read = () => toolCallResponse("read_file", { path: "src/a.ts" });
     const t = setup([plan(), read(), read(), read(), read()], { sandboxDown: true });

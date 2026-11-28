@@ -57,6 +57,8 @@ export const AGENT_RUN_OUTCOMES = [
   "blocked_repeatedly",
   "aborted",
   "failed",
+  /** 実装役が hand_back で作業を止めて人に返した */
+  "handed_back",
 ] as const;
 export type AgentRunOutcome = (typeof AGENT_RUN_OUTCOMES)[number];
 /** 判定（phase = judge）の合否（005 data-model.md 1章） */
