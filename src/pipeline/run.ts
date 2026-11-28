@@ -50,7 +50,7 @@ export interface PipelineInput {
   /** ホストの作業ディレクトリ（git の作業ツリー）。diff とファイル一覧を取る */
   workdir: string;
   issue: { title: string; body: string };
-  /** @agent のあとの依頼の本文 */
+  /** /agent のあとの依頼の本文 */
   instruction?: string;
   /** 渡したら計画役を飛ばす（CLI の --plan） */
   plan?: string;

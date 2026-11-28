@@ -38,10 +38,10 @@
 
 ## R4. 依頼の判定
 
-- **決定**: 純粋関数 `parseAgentRequest(body)` で、改行で分けて最初の空でない行が `/^@agent(\s|$)/` に合うかを見る。合えば、その行の `@agent` のあとと、続く行をすべて本文にする。本文は `[github] max_instruction_chars`（既定 20000）で切り詰める
+- **決定**: 純粋関数 `parseAgentRequest(body)` で、改行で分けて最初の空でない行が `/^\/agent(\s|$)/` に合うかを見る。合えば、その行の `/agent` のあとと、続く行をすべて本文にする。本文は `[github] max_instruction_chars`（既定 20000）で切り詰める
 - **対象の絞り込み**: `issue_comment` で `action == "created"`、`issue.pull_request` がない、`issue.state == "open"`、`comment.user.type != "Bot"`、`comment.performed_via_github_app` がない
 - **理由**: FR-005・FR-007・FR-008。最初の行に限れば、引用（`>`）やコードの中は自然に外れる
-- **代替**: 本文のどこかに `@agent` があれば依頼にする → 説明の中で触れただけで動き、予算を消費する
+- **代替**: 本文のどこかに `/agent` があれば依頼にする → 説明の中で触れただけで動き、予算を消費する
 
 ## R5. 権限の確認
 

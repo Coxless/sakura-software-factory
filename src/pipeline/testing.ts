@@ -346,7 +346,7 @@ export function createPipelineTestEnv(
       issue_number: 0,
       trigger_comment_id: 1,
       requested_by: "dev",
-      instruction: "@agent",
+      instruction: "/agent",
       created_at: 1,
       updated_at: 1,
     })

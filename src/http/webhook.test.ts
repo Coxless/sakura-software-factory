@@ -315,7 +315,7 @@ describe("POST /webhook: 依頼の判定と受付（contracts/webhook.md 5〜10�
     expect(jobCount(handle)).toBe(0);
   });
 
-  test("@agent だけなら 202 usage で、使い方のコメントが1回", async () => {
+  test("/agent だけなら 202 usage で、使い方のコメントが1回", async () => {
     const { post, handle, github, wakes } = setup();
     const res = await post(
       signedRequest(SECRET, "issue_comment", fixture("issue_comment.created.empty")),
@@ -327,7 +327,7 @@ describe("POST /webhook: 依頼の判定と受付（contracts/webhook.md 5〜10�
       expect.objectContaining({
         repo: "octo-org/demo",
         issueNumber: 7,
-        body: expect.stringContaining("@agent"),
+        body: expect.stringContaining("/agent"),
       }),
     ]);
     expect(wakes()).toBe(0);

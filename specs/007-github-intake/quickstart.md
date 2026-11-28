@@ -8,7 +8,7 @@
 pnpm run check
 ```
 
-- `src/github/*.test.ts`: 署名（正しい・ない・別の秘密・書き換え）、依頼の判定（`@agent` の形、引用、コード、ボット、PR、閉じた Issue、編集）、記録したペイロード
+- `src/github/*.test.ts`: 署名（正しい・ない・別の秘密・書き換え）、依頼の判定（`/agent` の形、引用、コード、ボット、PR、閉じた Issue、編集）、記録したペイロード
 - `src/http/webhook.test.ts`: contracts/webhook.md の判定の順と応答のすべて（偽の GitHub）
 - `src/pipeline/state.test.ts`: 遷移の表のすべての組（許可・拒否）、記録が1件残ること
 - `src/pipeline/worker.test.ts`: ローカルの bare リポジトリ（`file://`）と偽の 005 の入口（`PipelineResult` を返す）で、取り出し → Issue の取得 → 取得 → 作業ブランチ → インストール → 入口 → 報告 → 片付け。`onPhase` の同じ状態の扱い、005 の結果の分類、同時に1件、期限、起動時の掃除、停止（インストール中を含む）。作業ディレクトリの `.git/config` にトークンがないこと
@@ -42,7 +42,7 @@ kill -TERM %1   # 終了コード 0 で止まる
 
 | # | 操作 | 期待 |
 |---|---|---|
-| 1 | 権限のあるアカウントで `@agent README を直して` とコメント | 数秒で `eyes` のリアクション。`jobs` に1行 |
+| 1 | 権限のあるアカウントで `/agent README を直して` とコメント | 数秒で `eyes` のリアクション。`jobs` に1行 |
 | 2 | 1のジョブを Worker が処理する（AI解禁の前は上の設定で） | 解禁前: Issue に `pipeline_failed` の報告が1回（理由に「同じモデル」）。`work_dir/job-<id>` と作業場が残らない。解禁後（設定を戻す）: 報告が1回（008 からは合格なら PR ができて `ci_waiting`。不合格は `judge_rejected` など）で、`job_events` に `planning`〜`judging` の遷移 |
 | 3 | 権限のないアカウントで同じコメント | 何も起きない（ログに `ignored`） |
 | 4 | App の「Recent Deliveries」から1の配送を再送 | `duplicate`。ジョブは増えない |

@@ -19,7 +19,7 @@ evals/
 ```toml
 work_type = "bugfix"                 # bugfix / test / docs / refactor / feature / chore
 project = "projects/inventory"       # evals/ からの相対パス
-# instruction = "..."                # 任意。依頼の本文（@agent のあと）
+# instruction = "..."                # 任意。依頼の本文（/agent のあと）
 # install = "pnpm install --frozen-lockfile"   # 任意。ネットワークありの一時コンテナで1回
 
 # 工程内テスト（評価の間だけ [pipeline].check_commands を差し替える）

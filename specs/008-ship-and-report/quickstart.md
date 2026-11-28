@@ -34,4 +34,4 @@ export FACTORY_CONFIG=/project/data/verify/factory.toml GITHUB_APP_ID="$(cat /pr
 | 5 | 本物の形の偽のトークン（`ghp_` と 36 文字）を足すパッチ | push されない（リモートに作業ブランチがない）。Issue に `secret_detected` の失敗の報告（ファイルと行だけ） |
 | 6 | （任意）ブランチ保護を外して 1 と同じ | auto-merge を有効にできず `decision: draft`、理由に GitHub の文 |
 
-結果は `docs/journal/` に書く。AI解禁のあとは、Issue の `@agent` から 007 の常駐の流れで同じことを確かめる（007 の quickstart 3章）。
+結果は `docs/journal/` に書く。AI解禁のあとは、Issue の `/agent` から 007 の常駐の流れで同じことを確かめる（007 の quickstart 3章）。

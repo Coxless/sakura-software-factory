@@ -4,7 +4,7 @@ import { signBody } from "./testing.ts";
 
 // 比較は @octokit/webhooks の verify（中で node:crypto の timingSafeEqual）に任せる。定数時間であることはコードの読みで確かめる
 const SECRET = "test-webhook-secret";
-const BODY = JSON.stringify({ action: "created", comment: { body: "@agent 直して" } });
+const BODY = JSON.stringify({ action: "created", comment: { body: "/agent 直して" } });
 const bytes = (text: string) => new TextEncoder().encode(text);
 
 describe("verifySignature", () => {

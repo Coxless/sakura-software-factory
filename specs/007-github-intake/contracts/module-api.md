@@ -29,7 +29,7 @@ function toAgentRequest(event: string, delivery: string, payload: unknown, maxCh
   | { kind: "empty"; request: AgentRequest }
   | { kind: "ping" };
 
-/** 依頼の判定（純粋関数）。本文の最初の空でない行が @agent なら、そのあとの本文を返す */
+/** 依頼の判定（純粋関数）。本文の最初の空でない行が /agent なら、そのあとの本文を返す */
 function parseAgentCommand(body: string): string | undefined;
 
 /** トークンを環境変数で渡して取得し、作業ブランチを作る。エラーの文からトークンを伏せる */

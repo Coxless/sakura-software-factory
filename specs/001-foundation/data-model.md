@@ -7,7 +7,7 @@
 - 列挙値は `TEXT` に `CHECK` 制約を付け、TS 側でもリテラル型の union にする
 - 外部キーは有効（`PRAGMA foreign_keys = ON`）。ジョブを消す運用はしないので `ON DELETE` は既定（制限）のまま
 
-## jobs — `@agent` の依頼1件
+## jobs — `/agent` の依頼1件
 
 | 列 | 型 | NULL | 説明 |
 |---|---|---|---|
@@ -16,7 +16,7 @@
 | issue_number | INTEGER | NOT NULL | |
 | trigger_comment_id | INTEGER | NOT NULL | 起点のコメントの ID。Webhook の再送で同じジョブを二重に作らないために使う |
 | requested_by | TEXT | NOT NULL | 依頼者の GitHub ログイン名 |
-| instruction | TEXT | NOT NULL | 依頼文（`@agent` 以降） |
+| instruction | TEXT | NOT NULL | 依頼文（`/agent` 以降） |
 | status | TEXT | NOT NULL | 下の「状態」。既定 `queued` |
 | judge_retries | INTEGER | NOT NULL | 判定で不合格になってやり直した回数。既定 0 |
 | ci_retries | INTEGER | NOT NULL | CI 失敗後にやり直した回数。既定 0 |

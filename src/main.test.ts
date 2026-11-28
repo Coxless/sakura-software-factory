@@ -139,7 +139,7 @@ describe("startFactory: 受付と Worker（007）", () => {
   const payload = {
     action: "created",
     issue: { number: 7, state: "open" },
-    comment: { id: 11, body: "@agent README を直して", user: { login: "Coxless", type: "User" } },
+    comment: { id: 11, body: "/agent README を直して", user: { login: "Coxless", type: "User" } },
     repository: { full_name: "octo-org/demo" },
   };
 

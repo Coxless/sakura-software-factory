@@ -6,10 +6,10 @@
 
 ## Summary
 
-Issue の `@agent` コメントから、005 の工程を回すまでをつなぐ。内容は5つ。
+Issue の `/agent` コメントから、005 の工程を回すまでをつなぐ。内容は5つ。
 
 1. **GitHub 層**（`src/github/`）: App の認証とインストールトークン、署名の検証、権限の確認、リアクション、コメント。GitHub の型と SDK はこの中だけで使う
-2. **受付**（`POST /webhook`）: 署名 → 対象の絞り込み → `@agent` の判定 → 権限 → 予算 → `jobs` に積む → `202`。リアクションとコメントは応答のあと
+2. **受付**（`POST /webhook`）: 署名 → 対象の絞り込み → `/agent` の判定 → 権限 → 予算 → `jobs` に積む → `202`。リアクションとコメントは応答のあと
 3. **状態機械**（`src/pipeline/state.ts`）: `03` 3章の遷移の表と、記録付きの遷移
 4. **Worker**（`src/pipeline/worker.ts`）: 1件ずつ取り出し、取得（トークンは環境変数で git に渡し、どこにも書き残さない）→ 作業ブランチ → 依存のインストール（`[pipeline] install_command`）→ 005 の入口（`runPipelineInSandbox`）→ 報告 → 片付け。期限、起動時の掃除、停止
 5. **失敗の報告**（`src/pipeline/report.ts`）: 1回だけ、秘密情報を伏せて Issue に投稿する。008 までは合格したジョブも `failed`（出荷の工程が未実装）
@@ -110,11 +110,11 @@ specs/007-github-intake/
 同じ変更で直す。
 
 - `03` 4章 #2 準備: Issue の題と本文を準備のときに取ること、依存のインストールのコマンドは `[pipeline] install_command`（既定 `pnpm install --frozen-lockfile`、空なら飛ばす）であることを足す
-- `03` 4章 #1: 依頼の形（最初の空でない行が `@agent`）、権限のない依頼に返事をしないこと、リアクションは `eyes` であることを足す
+- `03` 4章 #1: 依頼の形（最初の空でない行が `/agent`）、権限のない依頼に返事をしないこと、リアクションは `eyes` であることを足す
 - `03` 5章 GitHub 連携: 環境変数の名前、秘密鍵はファイルで渡すこと、トークンは環境変数で git に渡し `.git/config` に書かないことを足す
 - `03` 5章 データ・キュー: 受信箱のテーブルを持たないこと（GitHub は自動で再送しないので、失敗は配送の ID をログに残し、運用者が手で再送する）を足す
 - `03` 8章: `http/webhook.ts`・`github/`（`client.ts`・`signature.ts`・`events.ts`・`git.ts`）・`pipeline/worker.ts` を足す
-- `04` 2章 層1: 引用・コードの中の `@agent`、ボットのコメントを依頼にしないことを足す
+- `04` 2章 層1: 引用・コードの中の `/agent`、ボットのコメントを依頼にしないことを足す
 - constitution の変更は要らない
 
 ## Complexity Tracking

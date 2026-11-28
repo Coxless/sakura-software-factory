@@ -52,9 +52,9 @@ allowed_work_types = ["bugfix", "test", "docs", "refactor"]   # 自動マージ�
 skip_label = "no-auto-merge"   # Issue にこのラベルがあれば Draft にする
 
 [github]
-allowed_users = ["Coxless"]   # @agent を実行できるユーザー（書き込み権限の確認に加えて絞る）
+allowed_users = ["Coxless"]   # /agent を実行できるユーザー（書き込み権限の確認に加えて絞る）
 webhook_max_body_kb = 1024     # Webhook の本文の上限（64〜25600）。項目の説明: specs/007-github-intake/contracts/factory-toml.md
-max_instruction_chars = 20000  # 依頼の本文（@agent のあと）の上限（100〜200000）
+max_instruction_chars = 20000  # 依頼の本文（/agent のあと）の上限（100〜200000）
 
 [worker]
 poll_interval_seconds = 5   # キューを見る間隔（1〜300）。受付が積んだときは待たずに取り出す

@@ -42,7 +42,7 @@ export interface WebhookHandler {
 const NO_STORE = { "Cache-Control": "no-store" } as const;
 
 /**
- * POST /webhook（contracts/webhook.md）。判定の順: 大きさ → 署名 → JSON → ping → 対象の絞り込み → @agent →
+ * POST /webhook（contracts/webhook.md）。判定の順: 大きさ → 署名 → JSON → ping → 対象の絞り込み → /agent →
  * 許可ユーザーと権限 → 本文が空でない → 予算 → 積む。リアクション・コメント・wake は応答のあとに回す（SC-004）。
  * check_suite・pull_request は JSON のあとで分け、ci_waiting のジョブに印を付けるだけにする（009 contracts/webhook.md）。
  * push は [staging].repo の既定のブランチへのものだけを deployments に積む（010 contracts/webhook.md）。

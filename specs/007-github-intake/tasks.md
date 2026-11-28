@@ -50,7 +50,7 @@ description: "Task list for 007 github-intake"
 **Independent Test**: 署名の4つの場合と大きすぎる本文を送り、応答とジョブの件数を確かめる
 
 - [X] T009 [P] [US1] `src/github/signature.test.ts` を書く: 正しい秘密 → true、署名なし・`sha256=` の形でない・別の秘密・本文を1バイト変えた → false。比較に `@octokit/webhooks` の検証（定数時間）を使っていることをコードの読みで確かめる旨のコメント
-- [X] T010 [P] [US1] `src/github/fixtures/` に記録したペイロードを置く（GitHub のドキュメントの例をもとに、アカウント名は `octo-requester`・`octo-outsider`・`factory-app[bot]` などの架空の名前にする）: `ping.json`、`issue_comment.created.agent.json`（`@agent` で始まる）、`.created.mention.json`（文中の言及）、`.created.quote.json`（`> @agent`）、`.created.code.json`（コードブロックの中）、`.created.bot.json`、`.created.pull_request.json`、`.created.closed.json`、`.edited.agent.json`、`.created.empty.json`（`@agent` だけ）、`.created.agentx.json`（`@agentx`）
+- [X] T010 [P] [US1] `src/github/fixtures/` に記録したペイロードを置く（GitHub のドキュメントの例をもとに、アカウント名は `octo-requester`・`octo-outsider`・`factory-app[bot]` などの架空の名前にする）: `ping.json`、`issue_comment.created.agent.json`（`/agent` で始まる）、`.created.mention.json`（文中の言及）、`.created.quote.json`（`> /agent`）、`.created.code.json`（コードブロックの中）、`.created.bot.json`、`.created.pull_request.json`、`.created.closed.json`、`.edited.agent.json`、`.created.empty.json`（`/agent` だけ）、`.created.agentx.json`（`/agentx`）
 - [X] T011 [US1] `src/github/signature.ts` を作る（T009 を通す）: `verifySignature(secret, rawBody, header)`
 - [X] T012 [US1] `src/http/webhook.test.ts` の前半を書く（contracts/webhook.md の 1〜4）: 上限を超える本文は `413`（本文を読み切らない。`[github] webhook_max_body_kb` を小さくした設定で）、署名なし・誤りは `401` で偽の GitHub が一度も呼ばれない、署名が正しく JSON が壊れていれば `400`、`ping` は `200 {"result":"pong"}`、応答の本文に内部の情報がない
 - [X] T013 [US1] `src/http/webhook.ts` に `createWebhookHandler(deps)` を作り（`bodyLimit` → 生の本文で `verifySignature` → JSON の解釈 → `ping`）、`src/http/app.ts` の `createApp` に任意の `webhook` を受け取って `POST /webhook` に付ける形を足す（`/healthz` の既存のテストを壊さない）。T012 を通す
@@ -59,13 +59,13 @@ description: "Task list for 007 github-intake"
 
 ---
 
-## Phase 4: User Story 2 - `@agent` の依頼を確かめてキューに積む (Priority: P1)
+## Phase 4: User Story 2 - `/agent` の依頼を確かめてキューに積む (Priority: P1)
 
 **Goal**: 権限のある人の正しい依頼だけを積み、リアクションを付ける。予算切れ・空の依頼は知らせる
 
 **Independent Test**: T010 のペイロードと偽の GitHub（権限・失敗）と予算の残りを変えて、contracts/webhook.md の 5〜10 を確かめる
 
-- [X] T014 [P] [US2] `src/github/events.test.ts` を書く: `parseAgentCommand` の表（`@agent 直して` → `直して`、`@agent\n続き` → `続き`、先頭の空行は飛ばす、`@agentx`・`@agent-bot`・`> @agent`・行の途中・コードブロックの中 → undefined、`@agent` だけ → 空文字）、`toAgentRequest` が T010 の各ペイロードで contracts/module-api.md の `kind`・`reason` を返す、本文が `max_chars` を超えたら切り詰める、TypeBox でペイロードの必要な項目だけを検証し、欠けていれば `ignored` ではなく例外（`400` にする）
+- [X] T014 [P] [US2] `src/github/events.test.ts` を書く: `parseAgentCommand` の表（`/agent 直して` → `直して`、`/agent\n続き` → `続き`、先頭の空行は飛ばす、`/agentx`・`/agent-bot`・`> /agent`・行の途中・コードブロックの中 → undefined、`/agent` だけ → 空文字）、`toAgentRequest` が T010 の各ペイロードで contracts/module-api.md の `kind`・`reason` を返す、本文が `max_chars` を超えたら切り詰める、TypeBox でペイロードの必要な項目だけを検証し、欠けていれば `ignored` ではなく例外（`400` にする）
 - [X] T015 [US2] `src/github/events.ts` を作る（T014 を通す）: ペイロードの TypeBox のスキーマ（`action`・`issue.number`・`issue.state`・`issue.pull_request`・`comment.id`・`comment.body`・`comment.user.login`・`comment.user.type`・`comment.performed_via_github_app`・`repository.full_name`）、`parseAgentCommand`、`toAgentRequest`
 - [X] T016 [US2] `src/http/webhook.test.ts` の後半を書く（contracts/webhook.md の 5〜10）: 対象でないペイロードは `202 ignored` でジョブ 0、権限 `write`／`maintain`／`admin` かつ許可ユーザー（大文字と小文字を区別しない）で `202 queued` とジョブ1件・`eyes` のリアクション1回、`read`・`triage`・許可ユーザーでない人は `202 ignored` でジョブ 0・コメント 0、権限の確認が例外か 5 秒を超えたら `500` でジョブ 0、空の依頼は `202 usage` で使い方のコメント1回、予算の残りが不足なら `202 budget_exhausted`・`intake_stopped_at` が入り・コメント1回、同じ配送を2回で `duplicate` とジョブ1件・リアクション1回、リアクションが失敗してもジョブは残り `job_events` に `reaction_failed`、DB に書けなければ `500`、積んだら `wake` が1回呼ばれる。応答が 1 秒以内（偽の GitHub、SC-004）
 - [X] T017 [US2] `src/http/webhook.ts` に受付の流れを足す（T016 を通す。research R6）: 判定 → 権限（`AbortSignal.timeout(5000)`）→ 予算（`canAcceptNewJob`）→ `enqueueJob` → 応答。リアクション・コメント・`wake` は応答を返したあとに行う（`queueMicrotask` などで応答を待たせない。失敗はログと `job_events`）。ログには配送の ID と結果を `info` で出し、依頼の本文は出さない
@@ -162,7 +162,7 @@ Task: "T008 src/github/port.ts と testing.ts を作る"
 
 ### MVP First
 
-1. Phase 1・2 → Phase 3（US1）→ Phase 4（US2）で、Issue の `@agent` が安全にジョブとして積まれる。LLM を呼ばずに本物の GitHub で確かめられる（T033 の1・3・4）
+1. Phase 1・2 → Phase 3（US1）→ Phase 4（US2）で、Issue の `/agent` が安全にジョブとして積まれる。LLM を呼ばずに本物の GitHub で確かめられる（T033 の1・3・4）
 
 ### Incremental Delivery
 

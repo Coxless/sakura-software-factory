@@ -108,7 +108,7 @@ export const FactoryConfigSchema = Type.Object(
         allowed_users: Type.Array(NonEmpty, { minItems: 1 }),
         /** Webhook の本文の上限（KB）。署名の検証の前に絞る（007） */
         webhook_max_body_kb: Range(64, 25600, 1024),
-        /** 依頼の本文（@agent のあと）の上限。超えた分は切り詰める（007） */
+        /** 依頼の本文（/agent のあと）の上限。超えた分は切り詰める（007） */
         max_instruction_chars: Range(100, 200000, 20000),
       },
       strict,

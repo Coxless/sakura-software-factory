@@ -63,7 +63,7 @@ describe.skipIf(skip)("作業場の上で実装工程を実行する", () => {
         issue_number: 1,
         trigger_comment_id: 1,
         requested_by: "tester",
-        instruction: "@agent",
+        instruction: "/agent",
         created_at: 1,
         updated_at: 1,
       })
