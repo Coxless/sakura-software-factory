@@ -39,10 +39,12 @@ export type AgentRequestResult =
   | { kind: "empty"; request: AgentRequest }
   | { kind: "ping" };
 
-const AGENT_LINE = /^@agent(?:\s|$)/;
+const COMMAND = "/agent";
+const AGENT_LINE = /^\/agent(?:\s|$)/;
 
 /**
- * 依頼の判定（FR-007）。最初の空でない行が @agent（直後が空白か行末）で始まれば、そのあとの本文を返す。
+ * 依頼の判定（FR-007）。最初の空でない行が /agent（直後が空白か行末）で始まれば、そのあとの本文を返す。
+ * `@agent` にしないのは、GitHub に実在するアカウント `agent` へのメンションになるため。
  * 行の先頭に空白・引用（>）・コードの囲みがあれば依頼ではない。依頼でなければ undefined、本文が空なら ""。
  */
 export function parseAgentCommand(body: string): string | undefined {
@@ -51,7 +53,7 @@ export function parseAgentCommand(body: string): string | undefined {
   if (index === -1) return undefined;
   const first = lines[index] as string;
   if (!AGENT_LINE.test(first)) return undefined;
-  const rest = [first.slice("@agent".length), ...lines.slice(index + 1)].join("\n");
+  const rest = [first.slice(COMMAND.length), ...lines.slice(index + 1)].join("\n");
   return rest.trim();
 }
 

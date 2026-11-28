@@ -21,7 +21,7 @@
 | 3 | JSON として正しい | `400 {"error":"invalid_payload"}` |
 | 4 | `ping` | `200 {"result":"pong"}` |
 | 5 | `issue_comment` で `action == "created"`、Issue（PR でない）、開いている、ボットでない | `202 {"result":"ignored"}` |
-| 6 | 最初の空でない行が `@agent`（単語として） | `202 {"result":"ignored"}` |
+| 6 | 最初の空でない行が `/agent`（単語として） | `202 {"result":"ignored"}` |
 | 7 | 依頼者が書き込み以上の権限を持ち、`allowed_users` に含まれる | `202 {"result":"ignored"}`（Issue に書かない。`info` のログ） |
 | — | 権限の確認ができない（API の失敗・5 秒の時間切れ） | `500 {"error":"internal_error"}`（`error` のログに配送の ID） |
 | 8 | 依頼の本文が空でない | `202 {"result":"usage"}`、応答のあと Issue に使い方を書く |
@@ -36,10 +36,10 @@
 ## 依頼の形
 
 ```
-@agent <依頼の本文の1行目>
+/agent <依頼の本文の1行目>
 <続く行も本文に含める>
 ```
 
-- `@agent` の直後は空白か行末。`@agentx`・`@agent-bot` は依頼ではない
-- 最初の空でない行が `@agent` で始まらなければ依頼ではない（引用 `> @agent`、コードブロックの中、文中の言及を含む）
+- `/agent` の直後は空白か行末。`/agentx`・`/agent-bot` は依頼ではない
+- 最初の空でない行が `/agent` で始まらなければ依頼ではない（引用 `> /agent`、コードブロックの中、文中の言及を含む）
 - 本文は `[github] max_instruction_chars`（既定 20000）で切り詰める

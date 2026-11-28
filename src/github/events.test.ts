@@ -14,25 +14,26 @@ const fixture = (name: string): Record<string, unknown> =>
 
 describe("parseAgentCommand", () => {
   test.each([
-    ["@agent 直して", "直して"],
-    ["@agent\n続き", "続き"],
-    ["@agent 1行目\n2行目\n\n3行目", "1行目\n2行目\n\n3行目"],
-    ["\n\n  \n@agent 先頭の空行は飛ばす", "先頭の空行は飛ばす"],
-    ["@agent\t直して\r\n続き", "直して\n続き"],
-    ["@agent", ""],
-    ["@agent   \n  ", ""],
+    ["/agent 直して", "直して"],
+    ["/agent\n続き", "続き"],
+    ["/agent 1行目\n2行目\n\n3行目", "1行目\n2行目\n\n3行目"],
+    ["\n\n  \n/agent 先頭の空行は飛ばす", "先頭の空行は飛ばす"],
+    ["/agent\t直して\r\n続き", "直して\n続き"],
+    ["/agent", ""],
+    ["/agent   \n  ", ""],
   ])("%j → %j", (body, expected) => {
     expect(parseAgentCommand(body)).toBe(expected);
   });
 
   test.each([
-    ["@agentx 直して"],
-    ["@agent-bot 直して"],
-    ["> @agent 直して"],
-    ["あとで @agent に頼む"],
-    ["```\n@agent 直して\n```"],
-    ["    @agent インデントしたコード"],
-    ["説明\n@agent 2行目の依頼"],
+    ["/agentx 直して"],
+    ["/agent-bot 直して"],
+    ["> /agent 直して"],
+    ["あとで /agent に頼む"],
+    ["```\n/agent 直して\n```"],
+    ["    /agent インデントしたコード"],
+    ["説明\n/agent 2行目の依頼"],
+    ["@agent 直して"],
     [""],
   ])("%j は依頼ではない", (body) => {
     expect(parseAgentCommand(body)).toBeUndefined();
@@ -40,7 +41,7 @@ describe("parseAgentCommand", () => {
 });
 
 describe("toAgentRequest", () => {
-  test("@agent で始まるコメントは request", () => {
+  test("/agent で始まるコメントは request", () => {
     const result = toAgentRequest(
       "issue_comment",
       "d-1",
@@ -87,7 +88,7 @@ describe("toAgentRequest", () => {
     });
   });
 
-  test("@agent だけなら empty", () => {
+  test("/agent だけなら empty", () => {
     const result = toAgentRequest(
       "issue_comment",
       "d",
@@ -104,7 +105,7 @@ describe("toAgentRequest", () => {
 
   test("本文は max_chars で切り詰める（サロゲートペアを割らない）", () => {
     const payload = fixture("issue_comment.created.agent");
-    (payload.comment as Record<string, unknown>).body = `@agent ${"🏭".repeat(150)}`;
+    (payload.comment as Record<string, unknown>).body = `/agent ${"🏭".repeat(150)}`;
     const result = toAgentRequest("issue_comment", "d", payload, 100);
     expect(result.kind).toBe("request");
     const instruction = (result as { request: { instruction: string } }).request.instruction;

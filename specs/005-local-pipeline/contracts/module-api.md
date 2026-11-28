@@ -14,7 +14,7 @@ interface PipelineInput {
   workspace: Workspace;                 // 004 の Workspace（exec を足したもの）
   workdir: string;                      // ホストの作業ディレクトリ（git の作業ツリー）
   issue: { title: string; body: string };
-  instruction?: string;                 // @agent のあとの依頼の本文
+  instruction?: string;                 // /agent のあとの依頼の本文
   plan?: string;                        // 渡したら計画役を飛ばす（CLI の --plan）
   deadline: number;                     // UTC の Unix ミリ秒
   signal?: AbortSignal;

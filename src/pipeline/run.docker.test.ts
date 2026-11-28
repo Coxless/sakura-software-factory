@@ -61,7 +61,7 @@ describe.skipIf(skip)("作業場の上で計画から判定までを回す", () 
         issue_number: 0,
         trigger_comment_id: 1,
         requested_by: "dev",
-        instruction: "@agent",
+        instruction: "/agent",
         created_at: 1,
         updated_at: 1,
       })

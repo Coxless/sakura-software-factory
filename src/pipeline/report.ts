@@ -190,10 +190,10 @@ export function renderFailureReport(config: FactoryConfig, report: FailureReport
 /** 依頼の本文が空のときの使い方（contracts/report.md） */
 export function renderUsage(): string {
   return [
-    "🏭 ファクトリーへの依頼は、コメントの1行目を `@agent` で始め、続けてやってほしいことを書いてください。",
+    "🏭 ファクトリーへの依頼は、コメントの1行目を `/agent` で始め、続けてやってほしいことを書いてください。",
     "",
     "例:",
-    "@agent README のインストール手順に pnpm の場合を足してください",
+    "/agent README のインストール手順に pnpm の場合を足してください",
   ].join("\n");
 }
 

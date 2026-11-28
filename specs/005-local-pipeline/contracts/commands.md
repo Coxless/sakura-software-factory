@@ -11,7 +11,7 @@ FACTORY_CONFIG=factory.dev.toml GEMINI_API_KEY=... \
 |---|---|---|
 | `--repo <path>` | ✅ | ローカルの git リポジトリ。`git clone --local --no-hardlinks` で一時ディレクトリに複製し、元は変えない |
 | `--issue <file>` | ✅ | Issue 文のファイル。1行目をタイトル、残りを本文とする |
-| `--instruction <file>` | | 依頼の本文（`@agent` のあとの文）のファイル |
+| `--instruction <file>` | | 依頼の本文（`/agent` のあとの文）のファイル |
 | `--plan <file>` | | 計画のファイル。渡すと計画役を呼ばずにこれを使う |
 | `--install <command>` | | 依存のインストールのコマンド（ネットワークありの一時コンテナ。例 `pnpm install --frozen-lockfile`） |
 | `--max-turns <n>` | | 実装工程1回のターン数の上限（既定 `[limits].max_turns_per_phase`） |

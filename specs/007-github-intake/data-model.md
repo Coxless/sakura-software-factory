@@ -10,7 +10,7 @@
 | `issue_number` | `issue.number` |
 | `trigger_comment_id` | `comment.id`。`(repo, trigger_comment_id)` で一意（重複の配送は `ON CONFLICT DO NOTHING`） |
 | `requested_by` | `comment.user.login` |
-| `instruction` | 依頼の本文（`@agent` のあと）。`[github] max_instruction_chars` で切り詰める |
+| `instruction` | 依頼の本文（`/agent` のあと）。`[github] max_instruction_chars` で切り詰める |
 | `status` | 遷移の表に従う（下） |
 | `branch` | `agent/issue-<issue_number>-job-<id>`（準備で決める） |
 | `failure_reason` | 分類（`clone_failed` など。下）と短い説明を `<分類>: <説明>` の形で。秘密情報を伏せる |

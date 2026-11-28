@@ -52,7 +52,7 @@
 | `workspace` | `Workspace` | 004 の作業場（4ツール・検査・整形・AGENTS.md）＋ `exec`（R5） |
 | `workdir` | string | ホストの作業ディレクトリ（diff・ファイル一覧の取り出し） |
 | `issue` | `{ title, body }` | |
-| `instruction` | string（任意） | 依頼の本文（`@agent` のあと） |
+| `instruction` | string（任意） | 依頼の本文（`/agent` のあと） |
 | `plan` | string（任意） | 渡されたら計画役を飛ばす（CLI の `--plan`） |
 | `deadline` | number | UTC の Unix ミリ秒 |
 | `signal` | AbortSignal（任意） | 呼び出し側の中断 |

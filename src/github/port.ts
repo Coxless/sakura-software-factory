@@ -145,6 +145,6 @@ export interface AgentRequest {
   issueNumber: number;
   commentId: number;
   author: string;
-  /** @agent のあとの本文（切り詰め済み） */
+  /** /agent のあとの本文（切り詰め済み） */
   instruction: string;
 }

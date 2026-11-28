@@ -33,7 +33,7 @@ workshop exec dev -- bash -lc '
 前提: 007 の quickstart 3章のとおり、App の Webhook を smee で Workshop に転送している。App の設定で `push` のイベントを購読する。
 
 1. `factory.toml` の `[staging].repo` を `Coxless/factory-sandbox` にしてファクトリーを起動する
-2. デモ用のリポジトリの main に、小さな変更を PR でマージする（または `@agent` の依頼を流す）
+2. デモ用のリポジトリの main に、小さな変更を PR でマージする（または `/agent` の依頼を流す）
 3. 期待: `deployments` に `succeeded` の行、`curl http://127.0.0.1:3100/healthz` が `200`。ファクトリーのジョブなら PR の本文にステージングの欄
 4. `/healthz` が `500` を返す変更をマージする
 5. 期待: 直前のイメージに戻り（`docker compose -p sakura-staging ps` のイメージ）、revert PR が作られる。ファクトリーのジョブなら `rolled_back` になり Issue に報告
