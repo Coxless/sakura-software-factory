@@ -179,7 +179,7 @@ description: "Task list for 002 llm-budget-gate"
 - [X] T032 [P] SC-007 の確認: `rg -n "streamSimple|completeSimple|\.stream\(|\.complete\(|chat/completions" src --glob '!**/*.test.ts'` を実行し、`src/llm/stream.ts`（ゲートの内側）と `src/llm/smoke.ts` の `raw` 試行関数（`runGated` に渡すもの）以外に LLM を呼ぶ経路がないことを確かめる。見つかったら直す
 - [X] T033 [P] `specs/001-foundation/contracts/module-api.md` の末尾に「002 で追加」として `src/llm/*` を参照する1行を足し、詳細は `specs/002-llm-budget-gate/contracts/module-api.md` を正とする旨を書く
 - [X] T034 `pnpm run check` を通す。ゲート・予算・偽の LLM のテストが合わせて10秒以内に終わることを `vitest run src/llm` の所要時間で確かめる（SC-006）
-- [ ] T035 **（手順2〜3は AI解禁の日に実施。手順1は確認済み）** quickstart.md の1〜3を上から実行して、手順どおりに動くことを確かめる。食い違いがあれば quickstart.md か実装を直す
+- [X] T035 **（手順1は確認済み。手順2〜3は 2026-11-28 に VPS で実施: `docs/journal/2026-11-28-sakura-tool-calling.md`）** quickstart.md の1〜3を上から実行して、手順どおりに動くことを確かめる。食い違いがあれば quickstart.md か実装を直す
 - [X] T036 実装中の試行錯誤を `docs/journal/YYYY-MM-DD-002-llm-budget-gate-実装.md` にまとめる（想定と違った挙動、エラー文、決めたこと、まだ分かっていないこと）
 
 ---
